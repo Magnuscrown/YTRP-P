@@ -4,54 +4,97 @@ Run:  python series_writer.py "hidden boss everyone looks down on" 10
 Needs: pip install requests
 Set API keys as environment variables (GitHub Secrets later):
   GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, NVIDIA_API_KEY, CEREBRAS_API_KEY
-NOTE: free model names change often. If one provider keeps failing,
-check its docs for the current free model name and edit PROVIDERS below.
+Models are picked automatically from each provider's live model list.
 """
 import os, sys, json, re, requests
 
-# (name, url, env var for key, model) - all OpenAI-compatible
+# (name, base url, key env var, optional model override env var, preferred keywords in order)
+# Model names change all the time, so we ask each provider for its CURRENT model list
+# and pick the best match automatically. To force a model, set e.g. GROQ_MODEL as a secret.
 PROVIDERS = [
-    ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-     "GEMINI_API_KEY", "gemini-2.5-flash"),
-    ("groq", "https://api.groq.com/openai/v1/chat/completions",
-     "GROQ_API_KEY", "llama-3.3-70b-versatile"),
-    ("cerebras", "https://api.cerebras.ai/v1/chat/completions",
-     "CEREBRAS_API_KEY", "llama-3.3-70b"),
-    ("openrouter", "https://openrouter.ai/api/v1/chat/completions",
-     "OPENROUTER_API_KEY", "meta-llama/llama-3.3-70b-instruct:free"),
-    ("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions",
-     "NVIDIA_API_KEY", "meta/llama-3.1-70b-instruct"),
+    ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
+     "GEMINI_MODEL", ["2.5-flash", "flash", "pro"]),
+    ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY",
+     "GROQ_MODEL", ["gpt-oss-120b", "llama-3.3-70b", "llama-4", "qwen", "llama"]),
+    ("cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY",
+     "CEREBRAS_MODEL", ["gpt-oss", "llama", "qwen"]),
+    ("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
+     "OPENROUTER_MODEL", ["gpt-oss", "llama-3.3", "deepseek", "qwen", "gemma", "llama"]),
+    ("nvidia", "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY",
+     "NVIDIA_MODEL", ["llama-3.3-70b", "llama-3.1-70b", "nemotron", "llama"]),
 ]
+# words that mean "not a normal chat model"
+SKIP = ("whisper", "guard", "tts", "embed", "vision", "image", "audio", "orpheus", "safeguard",
+        "rerank", "moderation", "transcribe", "playai", "imagen", "veo", "lyria", "aqa",
+        "reward", "parse", "clip", "-vl", "ocr", "translate", "safety")
+_cache = {}
+
+
+def candidates(name, base, key, override_env, prefs):
+    """Return up to 4 chat models to try for this provider, best first."""
+    if os.getenv(override_env):
+        return [os.getenv(override_env)]
+    if name in _cache:
+        return _cache[name]
+    ids = []
+    try:
+        r = requests.get(base + "/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)
+        r.raise_for_status()
+        ids = [m["id"].replace("models/", "") for m in r.json().get("data", [])]
+    except Exception as e:
+        print(f"[warn] {name}: could not list models: {e}")
+    ids = [i for i in ids if not any(w in i.lower() for w in SKIP)]
+    if name == "openrouter":
+        ids = [i for i in ids if i.endswith(":free")]
+
+    def rank(i):
+        low = i.lower()
+        k = next((n for n, p in enumerate(prefs) if p in low), len(prefs))
+        unstable = any(w in low for w in ("preview", "exp", "latest", "thinking"))
+        return (k, unstable, len(i))
+
+    ids.sort(key=rank)
+    _cache[name] = ids[:4]
+    print(f"[info] {name} models to try: {_cache[name]}")
+    return _cache[name]
 
 
 def ask(prompt, system="You are a helpful assistant."):
-    """Try each provider in order. If one fails or hits its limit, go to the next."""
+    """Try each provider (and its best models) in order. Failure or rate limit -> next one."""
     errors = []
-    for name, url, key_env, model in PROVIDERS:
+    for name, base, key_env, override_env, prefs in PROVIDERS:
         key = os.getenv(key_env)
         if not key:
             continue
-        try:
-            r = requests.post(
-                url,
-                headers={"Authorization": f"Bearer {key}"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.9,
-                },
-                timeout=90,
-            )
-            r.raise_for_status()
-            text = r.json()["choices"][0]["message"]["content"]
-            print(f"[ok] answered by {name}")
-            return text
-        except Exception as e:
-            print(f"[fail] {name}: {e}")
-            errors.append(f"{name}: {e}")
+        for model in candidates(name, base, key, override_env, prefs):
+            try:
+                r = requests.post(
+                    base + "/chat/completions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.9,
+                    },
+                    timeout=120,
+                )
+                if r.status_code != 200:
+                    msg = f"{name}/{model}: {r.status_code} {r.text[:200]}"
+                    print("[fail]", msg)
+                    errors.append(msg)
+                    if r.status_code in (401, 403, 429):
+                        break  # bad key or rate limit: skip the rest of this provider
+                    continue
+                text = r.json()["choices"][0]["message"]["content"]
+                print(f"[ok] answered by {name}/{model}")
+                return text
+            except Exception as e:
+                msg = f"{name}/{model}: {e}"
+                print("[fail]", msg)
+                errors.append(msg)
     raise RuntimeError("All providers failed -> " + " | ".join(errors))
 
 
