@@ -35,10 +35,8 @@ def probe(path):
 # ---------------------------------------------------------------- 0. optional: pick the film automatically
 def auto_pick(rank, min_minutes, max_minutes):
     """Pick the Nth most-downloaded film whose licence is WRITTEN on its Archive page (CC0 / PD mark / CC BY)."""
-    q = ("mediatype:movies AND (licenseurl:*creativecommons.org/publicdomain* "
-         "OR licenseurl:*creativecommons.org/licenses/by/*)")
     good = []
-    for d in find_films.search(q, rows=300):
+    for d in find_films.search_licensed():
         lic = (d.get("licenseurl") or "").lower()
         rt = d.get("runtime")
         mins = find_films.minutes(rt[0] if isinstance(rt, list) else rt)
