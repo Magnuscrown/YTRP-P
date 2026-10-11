@@ -35,23 +35,50 @@ def minutes(runtime):
     return None
 
 
+HEADERS = {"User-Agent": "recap-pipeline/1.0 (personal project)"}
+FIELDS = ["identifier", "title", "downloads", "licenseurl", "runtime", "creator"]
+
+# The exact licence URLs we accept. We search for each one by its exact text (more reliable than wildcards).
+LICENSE_URLS = []
+for scheme in ("http", "https"):
+    for v in ("2.0", "2.5", "3.0", "4.0"):
+        LICENSE_URLS.append(f"{scheme}://creativecommons.org/licenses/by/{v}/")
+    LICENSE_URLS.append(f"{scheme}://creativecommons.org/publicdomain/zero/1.0/")
+    LICENSE_URLS.append(f"{scheme}://creativecommons.org/publicdomain/mark/1.0/")
+
+
 def search(query, rows=200):
-    params = {"q": query, "fl[]": ["identifier", "title", "downloads", "licenseurl", "runtime", "creator"],
-              "sort[]": "downloads desc", "rows": rows, "page": 1, "output": "json"}
-    r = requests.get("https://archive.org/advancedsearch.php", params=params, timeout=60)
-    r.raise_for_status()
-    return r.json()["response"]["docs"]
+    """One Internet Archive search, most-downloaded first. Prints the real error if Archive refuses."""
+    params = {"q": query, "fl[]": FIELDS, "sort[]": "downloads desc", "rows": rows, "page": 1, "output": "json"}
+    r = requests.get("https://archive.org/advancedsearch.php", params=params, headers=HEADERS, timeout=90)
+    try:
+        data = r.json()
+    except Exception:
+        print(f"[warn] Archive did not return JSON (status {r.status_code}): {r.text[:200]}")
+        return []
+    if "response" not in data:
+        print(f"[warn] Archive search error (status {r.status_code}): {str(data)[:300]}")
+        return []
+    return data["response"]["docs"]
+
+
+def search_licensed(rows_each=100):
+    """Search every accepted licence URL separately, then merge and sort by downloads."""
+    seen, merged = set(), []
+    for url in LICENSE_URLS:
+        for d in search(f'mediatype:movies AND licenseurl:"{url}"', rows_each):
+            if d["identifier"] not in seen:
+                seen.add(d["identifier"])
+                merged.append(d)
+    merged.sort(key=lambda d: int(d.get("downloads") or 0), reverse=True)
+    print(f"[info] found {len(merged)} films with an accepted licence written on the page")
+    return merged
 
 
 def main():
     args = sys.argv[1:]
     cand = "--candidates" in args
-    if cand:
-        q = "collection:feature_films AND mediatype:movies"
-    else:
-        q = ("mediatype:movies AND (licenseurl:*creativecommons.org/publicdomain* "
-             "OR licenseurl:*creativecommons.org/licenses/by/*)")
-    docs = search(q)
+    docs = search("collection:feature_films AND mediatype:movies", 300) if cand else search_licensed()
     shown = 0
     print(("UNVERIFIED CANDIDATES - check copyright yourself!\n" if cand else "LICENSED FILMS (licence written on the page)\n"))
     for d in docs:
