@@ -1,0 +1,72 @@
+name: Daily explainer (1 long video + 3 Shorts)
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Topic (leave EMPTY to let the AI find today's best one)"
+        default: ""
+  # Turn on AFTER your first manual run works (remove the # signs). Daily at 20:00 UTC:
+  # schedule:
+  #   - cron: "0 20 * * *"
+
+permissions:
+  contents: write        # lets the job save used_topics.json back to your repo
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      TOPIC: ${{ inputs.topic }}
+      IMAGE_BUDGET: "400"
+      BURSTS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          pip install requests edge-tts pillow
+      - name: Find topic, research, write and FACT-CHECK
+        run: python explainer.py --topic "$TOPIC"
+      - name: Render the long video (horizontal)
+        run: FORMAT=landscape python make_all.py --parts 1 --concat no
+      - name: Render the 3 Shorts (vertical, same pictures)
+        run: python make_all.py --parts 2,3,4 --concat no
+      - name: Thumbnails
+        run: python thumbnail.py --video out/part_01.mp4
+      - name: Remember the topic we used
+        run: |
+          git config user.name "video-bot"
+          git config user.email "video-bot@users.noreply.github.com"
+          git add used_topics.json || true
+          git commit -m "remember used topic" || echo "nothing to save"
+          git push || echo "could not push (check Settings > Actions > Workflow permissions)"
+      - name: Save results
+        uses: actions/upload-artifact@v4
+        with:
+          name: explainer
+          path: |
+            out/part_01.mp4
+            out/part_02.mp4
+            out/part_03.mp4
+            out/part_04.mp4
+            out/series.json
+            out/factcheck.json
+            out/topic_candidates.json
+            out/titles.txt
+            out/shorts_titles.txt
+            out/description.txt
+            out/thumbnails/thumb_*.jpg
+          retention-days: 7
