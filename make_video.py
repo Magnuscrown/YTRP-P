@@ -7,9 +7,12 @@ Needs: pip install requests edge-tts   and ffmpeg installed
 Env:   CF_ACCOUNT_ID, CF_API_TOKEN     (Cloudflare account id + API token with Workers AI access)
 Test without keys:  TEST_MODE=1 python make_video.py 1   (fake images + fake voice)
 """
-import os, sys, json, time, base64, subprocess, textwrap, requests
+import os, sys, json, time, base64, hashlib, shutil, subprocess, textwrap, requests
 
-W, H, FPS = 1080, 1920, 30
+LANDSCAPE = os.getenv("FORMAT") == "landscape"      # long horizontal videos (16:9); default is vertical Shorts (9:16)
+W, H, FPS = (1920, 1080, 30) if LANDSCAPE else (1080, 1920, 30)
+UP = 1.5 if LANDSCAPE else 2      # working size for smooth zoom (smaller = faster for long videos)
+SHAPE = "wide 16:9 cinematic" if LANDSCAPE else "vertical 9:16"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 VOICE = os.getenv("TTS_VOICE", "en-US-GuyNeural")
 CF_MODEL = "@cf/black-forest-labs/flux-1-schnell"
@@ -17,6 +20,13 @@ TEST = os.getenv("TEST_MODE") == "1"
 SHOT_SECS = float(os.getenv("SHOT_SECS") or 2.0)   # longest time before the picture cuts
 # where the camera punches in on a picture (x, y as 0..1) for the extra cuts
 FOCI = [(0.5, 0.25), (0.25, 0.5), (0.75, 0.5), (0.5, 0.75), (0.35, 0.3), (0.65, 0.3)]
+
+
+class DailyLimit(Exception):
+    """Cloudflare's free daily image allowance is used up."""
+
+
+LIMIT_HIT = False
 
 
 def run(cmd):
@@ -36,6 +46,15 @@ def make_image(prompt, path, i):
         run(["ffmpeg", "-y", "-f", "lavfi", "-i",
              f"color=c={colors[i % 4]}:s=1024x1024:d=1", "-frames:v", "1", path])
         return
+    global LIMIT_HIT
+    # the long video and the Shorts use the SAME pictures: one generation, reused (cache ignores 9:16 vs 16:9 wording)
+    key = hashlib.sha1(prompt.replace("wide 16:9 cinematic", "").replace("vertical 9:16", "").encode()).hexdigest()
+    cached = f"out/img_cache/{key}.png"
+    if os.path.exists(cached):
+        shutil.copy(cached, path)
+        return
+    if LIMIT_HIT:
+        raise DailyLimit("daily limit already hit")
     acc, tok = os.environ["CF_ACCOUNT_ID"], os.environ["CF_API_TOKEN"]
     url = f"https://api.cloudflare.com/client/v4/accounts/{acc}/ai/run/{CF_MODEL}"
     r = None
@@ -44,6 +63,9 @@ def make_image(prompt, path, i):
                           json={"prompt": prompt, "steps": 4}, timeout=120)
         if r.status_code == 200:
             break
+        if r.status_code == 429 and "daily free allocation" in r.text:
+            LIMIT_HIT = True       # no point retrying: it resets tomorrow
+            raise DailyLimit(r.text[:200])
         print(f"[retry] image attempt {attempt+1} failed: {r.status_code} {r.text[:150]}")
         time.sleep(5 * (attempt + 1))
     r.raise_for_status()
@@ -53,6 +75,8 @@ def make_image(prompt, path, i):
         data = base64.b64decode(r.json()["result"]["image"])
     with open(path, "wb") as f:
         f.write(data)
+    os.makedirs("out/img_cache", exist_ok=True)
+    shutil.copy(path, cached)
 
 
 def make_voice(text, path):
@@ -71,7 +95,7 @@ def split_words(text, n):
     return [" ".join(words[i:i + size]) for i in range(0, len(words), size)][:n]
 
 
-def motion_clip(img, caption, secs, idx, out, focus=None):
+def motion_clip(img, caption, secs, idx, out, focus=None, label=None):
     """One image -> moving clip with caption. Alternates zoom-in, zoom-out, pan left, pan right."""
     frames = int(secs * FPS)
     mode = idx % 4
@@ -88,25 +112,47 @@ def motion_clip(img, caption, secs, idx, out, focus=None):
         z, x, y = "min(1.25+0.002*on,1.8)", f"(iw-iw/zoom)*{fx}", f"(ih-ih/zoom)*{fy}"
     cap_file = out + ".txt"
     with open(cap_file, "w") as f:
-        f.write("\n".join(textwrap.wrap(caption, 26)))
-    vf = (f"scale={W*2}:{H*2}:force_original_aspect_ratio=increase,crop={W*2}:{H*2},"
+        f.write("\n".join(textwrap.wrap(caption, 44 if LANDSCAPE else 26)))
+    UW, UH = int(W * UP) // 2 * 2, int(H * UP) // 2 * 2
+    vf = (f"scale={UW}:{UH}:force_original_aspect_ratio=increase,crop={UW}:{UH},"
           f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={W}x{H}:fps={FPS},"
-          f"drawtext=fontfile={FONT}:textfile={cap_file}:fontsize=58:fontcolor=white:"
-          f"borderw=4:bordercolor=black:line_spacing=10:x=(w-text_w)/2:y=h*0.68")
+          f"drawtext=fontfile={FONT}:textfile={cap_file}:fontsize={52 if LANDSCAPE else 58}:fontcolor=white:"
+          f"borderw=4:bordercolor=black:line_spacing=10:x=(w-text_w)/2:y=h*{0.78 if LANDSCAPE else 0.68}")
+    if label:        # e.g. "POOR WAY" / "RICH WAY" shown at the top while that side is explained
+        lab_file = out + ".label.txt"
+        with open(lab_file, "w") as f:
+            f.write(label)
+        color = "0xE53935" if "poor" in label.lower() or "broke" in label.lower() else "0x2E7D32"
+        vf += (f",drawtext=fontfile={FONT}:textfile={lab_file}:fontsize={60 if LANDSCAPE else 72}:fontcolor=white:"
+               f"box=1:boxcolor={color}@0.9:boxborderw=22:x=(w-text_w)/2:y=h*0.06")
     run(["ffmpeg", "-y", "-loop", "1", "-i", img, "-vf", vf, "-t", f"{secs:.2f}",
          "-r", str(FPS), "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", out])
 
 
 def safe_image(prompt, path, i, last_good):
-    """Make an image; if the free daily limit is hit, reuse the last good image instead of crashing."""
+    """Make an image. If the free daily limit is hit mid-video, reuse the last good image."""
     try:
         make_image(prompt, path, i)
         return path
+    except DailyLimit:
+        if last_good is None:
+            raise SystemExit("STOP: Cloudflare's free daily image limit is already used up. "
+                             "It resets daily. Try again later, or make fewer parts.")
+        print("[warn] daily image limit hit, reusing previous image")
+        return last_good
     except Exception as e:
         print(f"[warn] image failed ({str(e)[:100]}), reusing previous image")
         if last_good is None:
             raise
         return last_good
+
+
+def images_needed(part):
+    """How many NEW images this part will generate."""
+    beats = part.get("beats")
+    if not beats:
+        return len(part.get("image_prompts", []))
+    return sum(len(b.get("burst") or [1]) for b in beats)
 
 
 def build(part_no):
@@ -137,21 +183,21 @@ def build(part_no):
             sub = max(0.4, beat_secs / len(frames))
             for fi, prompt in enumerate(frames):
                 img, clip = f"{work}/img_{idx}.png", f"{work}/clip_{idx}.mp4"
-                full = f"{style}. {chars} Scene: {prompt}. dynamic pose, vertical 9:16, no text, no watermark"
+                full = f"{style}. {chars} Scene: {prompt}. dynamic pose, {SHAPE}, no text, no watermark"
                 last_good = safe_image(full, img, idx, last_good)
-                motion_clip(last_good, beat["line"], sub, idx, clip)
+                motion_clip(last_good, beat["line"], sub, idx, clip, None, beat.get("label"))
                 clips.append(clip)
                 idx += 1
         else:                                     # normal beat: one picture, several fast punch-in cuts
             img = f"{work}/img_{idx}.png"
-            full = f"{style}. {chars} Scene: {frames[0]}. dynamic pose, vertical 9:16, no text, no watermark"
+            full = f"{style}. {chars} Scene: {frames[0]}. dynamic pose, {SHAPE}, no text, no watermark"
             last_good = safe_image(full, img, idx, last_good)
             cuts = max(1, round(beat_secs / SHOT_SECS))
             sub = max(0.5, beat_secs / cuts)
             for k in range(cuts):
                 clip = f"{work}/clip_{idx}_{k}.mp4"
                 focus = None if k == 0 else FOCI[(idx + k) % len(FOCI)]
-                motion_clip(last_good, beat["line"], sub, idx + k, clip, focus)
+                motion_clip(last_good, beat["line"], sub, idx + k, clip, focus, beat.get("label"))
                 clips.append(clip)
             idx += 1
         print(f"[ok] beat {bi+1}/{len(beats)}")
