@@ -7,7 +7,7 @@ Needs: pip install requests edge-tts   and ffmpeg installed
 Env:   CF_ACCOUNT_ID, CF_API_TOKEN     (Cloudflare account id + API token with Workers AI access)
 Test without keys:  TEST_MODE=1 python make_video.py 1   (fake images + fake voice)
 """
-import os, sys, json, base64, subprocess, textwrap, requests
+import os, sys, json, time, base64, subprocess, textwrap, requests
 
 W, H, FPS = 1080, 1920, 30
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -35,8 +35,14 @@ def make_image(prompt, path, i):
         return
     acc, tok = os.environ["CF_ACCOUNT_ID"], os.environ["CF_API_TOKEN"]
     url = f"https://api.cloudflare.com/client/v4/accounts/{acc}/ai/run/{CF_MODEL}"
-    r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
-                      json={"prompt": prompt, "steps": 6}, timeout=120)
+    r = None
+    for attempt in range(4):
+        r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
+                          json={"prompt": prompt, "steps": 6}, timeout=120)
+        if r.status_code == 200:
+            break
+        print(f"[retry] image attempt {attempt+1} failed: {r.status_code} {r.text[:150]}")
+        time.sleep(5 * (attempt + 1))
     r.raise_for_status()
     if r.headers.get("content-type", "").startswith("image/"):
         data = r.content
