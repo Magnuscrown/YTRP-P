@@ -9,6 +9,15 @@ on:
       parts:
         description: "Number of parts"
         default: "10"
+      action_bursts:
+        description: "Action beats per part (flipbook moments)"
+        default: "4"
+      burst_frames:
+        description: "Quick pictures in each action beat"
+        default: "4"
+      cut_seconds:
+        description: "Longest time before a cut (smaller = faster)"
+        default: "2"
   # Turn this on AFTER the first manual run works (remove the # signs):
   # schedule:
   #   - cron: "0 20 * * *"
@@ -26,6 +35,9 @@ jobs:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       THEME: ${{ inputs.theme }}
       PARTS: ${{ inputs.parts }}
+      BURSTS: ${{ inputs.action_bursts }}
+      BURST_FRAMES: ${{ inputs.burst_frames }}
+      SHOT_SECS: ${{ inputs.cut_seconds }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
