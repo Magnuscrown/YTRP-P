@@ -13,9 +13,11 @@ Limits of v1: it understands DIALOGUE only (no vision yet), so silent films need
 import os, sys, re, json, math, time, argparse, subprocess, requests
 from series_writer import ask_json, ask
 import make_video
+import find_films
 
 OUT = "out"
 TEST = os.getenv("TEST_MODE") == "1"
+ENHANCE = os.getenv("ENHANCE") == "1"   # light clean-up for old footage (denoise, contrast, sharpen)
 # only these licence URLs are accepted automatically (no NonCommercial, NoDerivatives or ShareAlike)
 OK_LICENSE = ("creativecommons.org/publicdomain/zero", "creativecommons.org/publicdomain/mark",
               "creativecommons.org/licenses/by/")
@@ -28,6 +30,26 @@ def sh(cmd):
 def probe(path):
     return float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "default=nw=1:nk=1", path]).strip())
+
+
+# ---------------------------------------------------------------- 0. optional: pick the film automatically
+def auto_pick(rank, min_minutes, max_minutes):
+    """Pick the Nth most-downloaded film whose licence is WRITTEN on its Archive page (CC0 / PD mark / CC BY)."""
+    q = ("mediatype:movies AND (licenseurl:*creativecommons.org/publicdomain* "
+         "OR licenseurl:*creativecommons.org/licenses/by/*)")
+    good = []
+    for d in find_films.search(q, rows=300):
+        lic = (d.get("licenseurl") or "").lower()
+        rt = d.get("runtime")
+        mins = find_films.minutes(rt[0] if isinstance(rt, list) else rt)
+        if any(k in lic for k in OK_LICENSE) and mins and min_minutes <= mins <= max_minutes:
+            good.append((d, mins))
+    if len(good) < rank:
+        raise SystemExit(f"Only {len(good)} licensed films found in that length range; try a lower pick number.")
+    d, mins = good[rank - 1]
+    title = d["title"] if isinstance(d["title"], str) else d["title"][0]
+    print(f"[auto-pick] #{rank}: {title} ({mins:.0f} min, {int(d.get('downloads', 0)):,} downloads) id={d['identifier']}")
+    return d["identifier"]
 
 
 # ---------------------------------------------------------------- 1. licence check + download
@@ -131,7 +153,9 @@ def cut_clips(film, a, b, need, tag):
         start = a + (span * k / (n - 1) if n > 1 else span / 2)
         clip = f"{OUT}/work/{tag}_{k}.mp4"
         sh(["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", film, "-t", f"{sub:.2f}", "-an",
-            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
+            "-vf", ("hqdn3d=3:2:4:3,eq=contrast=1.08:brightness=0.02:saturation=1.1,unsharp=5:5:0.7,"
+                    if ENHANCE else "") +
+                   "scale=1280:720:force_original_aspect_ratio=decrease,"
                    "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-pix_fmt", "yuv420p", clip])
         clips.append(clip)
@@ -180,19 +204,23 @@ Return JSON: {{"titles": ["...", "..."]}}""", "Reply with JSON only.")["titles"]
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--id"); p.add_argument("--film"); p.add_argument("--title", default="")
+    p.add_argument("--id"); p.add_argument("--film"); p.add_argument("--auto", action="store_true")
+    p.add_argument("--pick", type=int, default=1); p.add_argument("--min-minutes", type=float, default=60)
+    p.add_argument("--max-minutes", type=float, default=180); p.add_argument("--title", default="")
     p.add_argument("--license-note", default=""); p.add_argument("--confirm-public-domain", action="store_true")
     p.add_argument("--minutes", type=float, default=20); p.add_argument("--synopsis", default="")
     p.add_argument("--chunk-seconds", type=int, default=150)
     a = p.parse_args()
     os.makedirs(OUT, exist_ok=True)
+    if a.auto and not a.id:
+        a.id = auto_pick(a.pick, a.min_minutes, a.max_minutes)
     if a.id:
         film, src = fetch(a.id, a.confirm_public_domain)
     elif a.film and a.license_note:
         film, src = a.film, {"title": a.title or os.path.basename(a.film), "license": a.license_note,
                              "page": "", "creator": ""}
     else:
-        raise SystemExit("Give --id (Internet Archive) or --film plus --license-note.")
+        raise SystemExit("Give --id, or --auto, or --film plus --license-note.")
     json.dump(src, open(f"{OUT}/source.json", "w"), indent=2)
     synopsis = open(a.synopsis).read() if a.synopsis and os.path.exists(a.synopsis) else ""
 
