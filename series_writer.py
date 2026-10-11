@@ -90,8 +90,9 @@ Return JSON in exactly this shape:
 
 
 if __name__ == "__main__":
-    theme = sys.argv[1] if len(sys.argv) > 1 else "a quiet new student is secretly the owner of the school"
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+    default_theme = "a quiet new student is secretly the owner of the school"
+    theme = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].strip() else default_theme
+    n = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].strip() else 10
     series = write_series(theme, n)
     os.makedirs("out", exist_ok=True)
     with open("out/series.json", "w") as f:
