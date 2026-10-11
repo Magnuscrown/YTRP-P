@@ -14,6 +14,9 @@ FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 VOICE = os.getenv("TTS_VOICE", "en-US-GuyNeural")
 CF_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 TEST = os.getenv("TEST_MODE") == "1"
+SHOT_SECS = float(os.getenv("SHOT_SECS") or 2.0)   # longest time before the picture cuts
+# where the camera punches in on a picture (x, y as 0..1) for the extra cuts
+FOCI = [(0.5, 0.25), (0.25, 0.5), (0.75, 0.5), (0.5, 0.75), (0.35, 0.3), (0.65, 0.3)]
 
 
 def run(cmd):
@@ -38,7 +41,7 @@ def make_image(prompt, path, i):
     r = None
     for attempt in range(4):
         r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
-                          json={"prompt": prompt, "steps": 6}, timeout=120)
+                          json={"prompt": prompt, "steps": 4}, timeout=120)
         if r.status_code == 200:
             break
         print(f"[retry] image attempt {attempt+1} failed: {r.status_code} {r.text[:150]}")
@@ -68,7 +71,7 @@ def split_words(text, n):
     return [" ".join(words[i:i + size]) for i in range(0, len(words), size)][:n]
 
 
-def motion_clip(img, caption, secs, idx, out):
+def motion_clip(img, caption, secs, idx, out, focus=None):
     """One image -> moving clip with caption. Alternates zoom-in, zoom-out, pan left, pan right."""
     frames = int(secs * FPS)
     mode = idx % 4
@@ -80,6 +83,9 @@ def motion_clip(img, caption, secs, idx, out):
         z, x, y = "1.25", f"(iw-iw/zoom)*on/{frames}", "ih/2-(ih/zoom/2)"
     else:            # pan right to left
         z, x, y = "1.25", f"(iw-iw/zoom)*(1-on/{frames})", "ih/2-(ih/zoom/2)"
+    if focus:        # quick punch-in on one part of the picture
+        fx, fy = focus
+        z, x, y = "min(1.25+0.002*on,1.8)", f"(iw-iw/zoom)*{fx}", f"(ih-ih/zoom)*{fy}"
     cap_file = out + ".txt"
     with open(cap_file, "w") as f:
         f.write("\n".join(textwrap.wrap(caption, 26)))
@@ -89,6 +95,18 @@ def motion_clip(img, caption, secs, idx, out):
           f"borderw=4:bordercolor=black:line_spacing=10:x=(w-text_w)/2:y=h*0.68")
     run(["ffmpeg", "-y", "-loop", "1", "-i", img, "-vf", vf, "-t", f"{secs:.2f}",
          "-r", str(FPS), "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", out])
+
+
+def safe_image(prompt, path, i, last_good):
+    """Make an image; if the free daily limit is hit, reuse the last good image instead of crashing."""
+    try:
+        make_image(prompt, path, i)
+        return path
+    except Exception as e:
+        print(f"[warn] image failed ({str(e)[:100]}), reusing previous image")
+        if last_good is None:
+            raise
+        return last_good
 
 
 def build(part_no):
@@ -103,17 +121,40 @@ def build(part_no):
     make_voice(part["narration"], audio)
     total = duration(audio)
 
-    prompts = part["image_prompts"]
-    n = len(prompts)
-    secs = total / n + 0.05
-    captions = split_words(part["narration"], n)
-    clips = []
-    for i, p in enumerate(prompts):
-        img, clip = f"{work}/img_{i}.png", f"{work}/clip_{i}.mp4"
-        make_image(f"{style}. {chars} Scene: {p}. vertical 9:16, no text, no watermark", img, i)
-        motion_clip(img, captions[min(i, len(captions) - 1)], secs, i, clip)
-        clips.append(clip)
-        print(f"[ok] scene {i+1}/{n}")
+    # Build a list of beats. Old-format series (no beats) still work.
+    beats = part.get("beats")
+    if not beats:
+        prompts = part["image_prompts"]
+        caps = split_words(part["narration"], len(prompts))
+        beats = [{"line": c, "image": p} for c, p in zip(caps, prompts)]
+
+    total_words = sum(len(b["line"].split()) for b in beats) or 1
+    clips, last_good, idx = [], None, 0
+    for bi, beat in enumerate(beats):
+        beat_secs = total * len(beat["line"].split()) / total_words
+        frames = beat.get("burst") or [beat.get("image", "")]
+        if len(frames) > 1:                       # action burst: quick cuts, new picture each time
+            sub = max(0.4, beat_secs / len(frames))
+            for fi, prompt in enumerate(frames):
+                img, clip = f"{work}/img_{idx}.png", f"{work}/clip_{idx}.mp4"
+                full = f"{style}. {chars} Scene: {prompt}. dynamic pose, vertical 9:16, no text, no watermark"
+                last_good = safe_image(full, img, idx, last_good)
+                motion_clip(last_good, beat["line"], sub, idx, clip)
+                clips.append(clip)
+                idx += 1
+        else:                                     # normal beat: one picture, several fast punch-in cuts
+            img = f"{work}/img_{idx}.png"
+            full = f"{style}. {chars} Scene: {frames[0]}. dynamic pose, vertical 9:16, no text, no watermark"
+            last_good = safe_image(full, img, idx, last_good)
+            cuts = max(1, round(beat_secs / SHOT_SECS))
+            sub = max(0.5, beat_secs / cuts)
+            for k in range(cuts):
+                clip = f"{work}/clip_{idx}_{k}.mp4"
+                focus = None if k == 0 else FOCI[(idx + k) % len(FOCI)]
+                motion_clip(last_good, beat["line"], sub, idx + k, clip, focus)
+                clips.append(clip)
+            idx += 1
+        print(f"[ok] beat {bi+1}/{len(beats)}")
 
     with open(f"{work}/list.txt", "w") as f:
         for c in clips:
@@ -121,7 +162,7 @@ def build(part_no):
     final = f"out/part_{part_no:02d}.mp4"
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", f"{work}/list.txt",
          "-i", audio, "-c:v", "copy", "-c:a", "aac", "-shortest", final])
-    print(f"Saved {final} ({duration(final):.1f}s)")
+    print(f"Saved {final} ({duration(final):.1f}s, {len(clips)} cuts from {idx} images)")
 
 
 if __name__ == "__main__":
