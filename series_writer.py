@@ -104,32 +104,70 @@ def parse_json(text):
     return json.loads(text[start:end + 1])
 
 
-def write_series(theme, parts=10):
-    system = "You write original, emotional short-form story series. Reply with JSON only."
-    prompt = f"""Create an ORIGINAL {parts}-part story series for vertical videos.
-Theme inspiration (do not copy any existing story): {theme}
-
-Rules:
-- Each part is about 130-160 words of narration (about 60 seconds).
-- Every part ends on a cliffhanger, except the last which gives a satisfying twist.
-- Keep characters consistent. Define them once in "characters".
-- Each part has 6 image prompts describing scenes in a consistent cartoon/3D avatar style.
-
-Return JSON in exactly this shape:
-{{
-  "title": "...",
-  "characters": [{{"name": "...", "look": "detailed visual description"}}],
-  "style": "one line describing the art style used in every image",
-  "parts": [
-    {{"part": 1, "title": "...", "narration": "...", "image_prompts": ["...", "..."]}}
-  ]
-}}"""
-    for attempt in range(2):
+def ask_json(prompt, system="You write original, emotional short-form story series. Reply with JSON only."):
+    for attempt in range(3):
         try:
             return parse_json(ask(prompt, system))
         except Exception as e:
-            print(f"[retry] bad JSON ({e})")
+            print(f"[retry] bad JSON ({str(e)[:120]})")
     raise RuntimeError("Could not get valid JSON")
+
+
+BURSTS = int(os.getenv("BURSTS") or 4)            # action beats per part
+BURST_FRAMES = int(os.getenv("BURST_FRAMES") or 4)  # quick pictures per action beat
+
+
+def write_series(theme, parts=10):
+    # STEP A: plan the WHOLE story first (beginning to end) so every part fits together
+    outline = ask_json(f"""Plan an ORIGINAL {parts}-part story for vertical videos.
+Theme inspiration (do not copy any existing story): {theme}
+
+Return JSON exactly like this:
+{{
+  "title": "...",
+  "logline": "one sentence: who, what they want, what is hidden, what is at stake",
+  "characters": [{{"name": "...", "look": "very detailed visual description (age, hair, clothes, colors)"}}],
+  "style": "one line describing the art style used in EVERY image (e.g. 3D Pixar-style cartoon, cinematic lighting)",
+  "beats": ["Part 1: ...", "Part 2: ...", "... one line per part, {parts} total ..."]
+}}
+Rules: Part 1 is the true beginning (introduce the main character, the world, the hidden secret).
+The beats must build step by step with rising tension and reach a big twist and a satisfying ending in part {parts}.""")
+
+    chars = "; ".join(f"{c['name']} ({c['look']})" for c in outline["characters"])
+    beats = "\n".join(outline["beats"])
+    result = {"title": outline["title"], "logline": outline.get("logline", ""),
+              "characters": outline["characters"], "style": outline["style"], "parts": []}
+    previous = ""
+
+    # STEP B: write each part, knowing the whole plan and how the last part ended
+    for n in range(1, parts + 1):
+        role = ("This is the VERY FIRST part: open with a gripping hook line, then introduce the main "
+                "character and the world from the beginning. Do not start in the middle." if n == 1 else
+                "This is the FINAL part: deliver the big reveal and a satisfying ending." if n == parts else
+                "Continue directly from where the previous part ended.")
+        part = ask_json(f"""Write part {n} of {parts} of this story.
+TITLE: {outline['title']}
+LOGLINE: {outline.get('logline', '')}
+CHARACTERS: {chars}
+FULL PLAN:
+{beats}
+
+PREVIOUS PART ENDED WITH: {previous or '(nothing, this is the start)'}
+
+{role}
+Rules:
+- Tell the part as exactly 12 BEATS in order. Each beat has "line" (the spoken narration for that moment, 10-16 words) and "image" (ONE picture prompt showing exactly what the line says, with camera angle, naming the characters, no text in the image).
+- Total narration about 140-170 words (about 60 seconds). Spoken storytelling in simple, vivid English: real scenes, action and short dialogue lines. Not a summary.
+- Exactly {BURSTS} of the 12 beats are ACTION beats (someone falls, raises a hand, slams a door, runs, gets pushed, gasps, everyone turns). For those, replace "image" with "burst": a list of exactly {BURST_FRAMES} prompts showing the SAME action in {BURST_FRAMES} quick stages (start to end), and keep that beat's "line" short (max 8 words). Spread the action beats across the whole part, not all together.
+- Parts 1 to {parts - 1} end on a cliffhanger.
+
+Return JSON: {{"title": "short part title", "beats": [{{"line": "...", "image": "..."}}, {{"line": "...", "burst": ["..." x {BURST_FRAMES}]}}]}}""")
+        part["part"] = n
+        part["narration"] = " ".join(b_["line"] for b_ in part["beats"])
+        result["parts"].append(part)
+        previous = " ".join(part["narration"].split()[-40:])
+        print(f"[ok] wrote part {n}/{parts}")
+    return result
 
 
 if __name__ == "__main__":
