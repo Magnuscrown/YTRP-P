@@ -138,14 +138,86 @@ def make_image(prompt, path, i):
     shutil.copy(path, cached)
 
 
+_tts_dead = set()      # voice providers that failed: not retried again in this run (saves a lot of waiting)
+PIPER_VOICE = os.getenv("PIPER_VOICE", "en/en_US/ryan/high/en_US-ryan-high")
+PIPER_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+
+
+def _tts_edge(text, path):
+    with open(path + ".txt", "w") as f:
+        f.write(text)
+    last = None
+    for attempt in range(2):
+        try:
+            subprocess.run(["edge-tts", "--voice", VOICE, "--file", path + ".txt", "--write-media", path],
+                           check=True, timeout=600, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            return
+        except subprocess.CalledProcessError as e:
+            last = (e.stderr or b"").decode()[-200:]
+            time.sleep(3)
+    raise RuntimeError(f"edge-tts refused ({last.strip().splitlines()[-1] if last.strip() else 'unknown'})")
+
+
+def _tts_piper(text, path):
+    """Offline neural voice that runs on GitHub's own computer: no account, no limit, no blocking."""
+    name = PIPER_VOICE.split("/")[-1]
+    os.makedirs("models/piper", exist_ok=True)
+    model = f"models/piper/{name}.onnx"
+    for ext in (".onnx", ".onnx.json"):
+        if not os.path.exists(f"models/piper/{name}{ext}"):
+            r = requests.get(PIPER_URL + PIPER_VOICE + ext, timeout=300)
+            r.raise_for_status()
+            open(f"models/piper/{name}{ext}", "wb").write(r.content)
+    wav = path + ".wav"
+    last = ""
+    for flag in ("-f", "--output_file"):
+        p = subprocess.run(["python3", "-m", "piper", "-m", model, flag, wav], input=text.encode(),
+                           capture_output=True, timeout=1800)
+        if p.returncode == 0 and os.path.exists(wav):
+            run(["ffmpeg", "-y", "-i", wav, "-codec:a", "libmp3lame", "-q:a", "3", path])
+            return
+        last = p.stderr.decode()[-150:]
+    raise RuntimeError(f"piper failed ({last.strip()})")
+
+
+def _tts_gtts(text, path):
+    """Last resort: Google Translate's voice. Works almost anywhere, but sounds more robotic."""
+    from gtts import gTTS
+    for attempt in range(3):
+        try:
+            gTTS(text=text, lang="en").save(path)
+            return
+        except Exception as e:
+            err = e
+            time.sleep(5 * (attempt + 1))
+    raise RuntimeError(f"gTTS failed ({str(err)[:100]})")
+
+
+VOICES = {"edge": _tts_edge, "piper": _tts_piper, "gtts": _tts_gtts}
+
+
 def make_voice(text, path):
+    """Voice providers in order (TTS_PROVIDERS, default edge,piper,gtts). One that fails is skipped from then on."""
     if TEST:
         run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=12", path])
         return
-    with open(path + ".txt", "w") as f:
-        f.write(text)
-    subprocess.run(["edge-tts", "--voice", VOICE, "--file", path + ".txt",
-                    "--write-media", path], check=True)
+    errors = []
+    for name in [p.strip() for p in (os.getenv("TTS_PROVIDERS") or "edge,piper,gtts").split(",")]:
+        if name in _tts_dead or name not in VOICES:
+            continue
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            VOICES[name](text, path)
+            if os.path.exists(path) and os.path.getsize(path) > 2000:
+                print(f"[voice] made with {name}")
+                return
+            raise RuntimeError("empty audio file")
+        except Exception as e:
+            print(f"[voice] {name} failed: {str(e)[:160]}")
+            errors.append(f"{name}: {str(e)[:80]}")
+            _tts_dead.add(name)
+    raise SystemExit("STOP: no voice provider worked -> " + " | ".join(errors))
 
 
 def split_words(text, n):
