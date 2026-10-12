@@ -14,6 +14,7 @@ import os, re, time, html, requests
 HEAD = {"User-Agent": "recap-pipeline/1.0 (personal project; contact via GitHub)"}
 _cache = {}
 _dead = set()          # engines that failed hard (bad key, quota): skipped for the rest of the run
+_fails, _wins = {}, {}  # an engine that only ever fails (for example DuckDuckGo blocked on GitHub) is switched off
 
 
 def _tavily(q, n):
@@ -48,8 +49,12 @@ def _ddg(q, n):
 
 
 def _wikipedia(q, n):
-    r = requests.get("https://en.wikipedia.org/w/api.php", headers=HEAD, timeout=30,
-                     params={"action": "query", "list": "search", "srsearch": q, "format": "json", "srlimit": min(n, 3)})
+    for attempt in range(3):
+        r = requests.get("https://en.wikipedia.org/w/api.php", headers=HEAD, timeout=30,
+                         params={"action": "query", "list": "search", "srsearch": q, "format": "json", "srlimit": min(n, 3)})
+        if r.status_code != 429:
+            break
+        time.sleep(3 * (attempt + 1))        # be polite: wait and try again
     r.raise_for_status()
     return [{"title": x["title"], "url": f"https://en.wikipedia.org/?curid={x['pageid']}",
              "snippet": html.unescape(re.sub(r"<[^>]+>", "", x["snippet"]))} for x in r.json()["query"]["search"]]
@@ -68,16 +73,25 @@ def search(query, n=6):
         if name in _dead or (env and not os.getenv(env)):
             continue
         try:
+            got = 0
             for x in fn(query, n):
                 if x["url"] and x["url"] not in seen:
                     seen.add(x["url"])
+                    got += 1
                     out.append({**x, "snippet": x["snippet"][:500], "engine": name})
+            if got:
+                _wins[name] = _wins.get(name, 0) + 1
         except Exception as e:
             msg = str(e)[:100]
-            print(f"[search:{name}] {msg}")
-            if any(c in msg for c in ("401", "403", "429", "402")):
-                _dead.add(name)             # key/quota problem: do not keep hammering it
-    time.sleep(0.5)
+            _fails[name] = _fails.get(name, 0) + 1
+            if _fails[name] <= 2:
+                print(f"[search:{name}] {msg}")
+            if any(c in msg for c in ("401", "403", "402")):
+                _dead.add(name)             # bad key: do not keep hammering it
+            elif _fails[name] >= 4 and not _wins.get(name):
+                _dead.add(name)
+                print(f"[search:{name}] switched off for this run (it never returned anything)")
+    time.sleep(1.0)
     _cache[key] = out
     return out
 
