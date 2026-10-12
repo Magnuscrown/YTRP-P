@@ -4,7 +4,12 @@ import google.generativeai as genai
 from groq import Groq
 from config import GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, NVIDIA_API_KEY
 
-# --- Helper function to build the prompt ---
+# Debug: Check if keys are loaded
+print(f"🔑 GEMINI_API_KEY loaded: {bool(GEMINI_API_KEY)}")
+print(f"🔑 GROQ_API_KEY loaded: {bool(GROQ_API_KEY)}")
+print(f"🔑 OPENROUTER_API_KEY loaded: {bool(OPENROUTER_API_KEY)}")
+print(f"🔑 NVIDIA_API_KEY loaded: {bool(NVIDIA_API_KEY)}")
+
 def build_prompt(topic, video_type):
     if video_type == "long":
         return f"""
@@ -14,7 +19,7 @@ def build_prompt(topic, video_type):
         Structure: Break it down into scenes. For each scene, write the voiceover text, and then in brackets, describe what the character should be doing (e.g., [Character scratching head], [Character looking shocked], [Character pointing up]).
         Make it engaging but soothing. Do not use complicated words.
         """
-    else: # Short
+    else:
         return f"""
         Write a 45-second YouTube Short script about: {topic}.
         Tone: Fast-paced but calm, curious, simple, confident.
@@ -22,17 +27,15 @@ def build_prompt(topic, video_type):
         Structure: Voiceover text, and in brackets, the character's reaction (e.g., [Character shrugs], [Character smiles]).
         """
 
-# --- Provider 1: Gemini ---
 def generate_with_gemini(prompt):
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
         return model.generate_content(prompt).text
     except Exception as e:
-        print(f"⚠️ Gemini failed: {e}")
+        print(f"⚠️ Gemini failed: {repr(e)}")
         return None
 
-# --- Provider 2: Groq ---
 def generate_with_groq(prompt):
     try:
         client = Groq(api_key=GROQ_API_KEY)
@@ -44,10 +47,9 @@ def generate_with_groq(prompt):
         )
         return completion.choices[0].message.content
     except Exception as e:
-        print(f"⚠️ Groq failed: {e}")
+        print(f"⚠️ Groq failed: {repr(e)}")
         return None
 
-# --- Provider 3: OpenRouter ---
 def generate_with_openrouter(prompt):
     try:
         response = requests.post(
@@ -58,12 +60,12 @@ def generate_with_openrouter(prompt):
                 "messages": [{"role": "user", "content": prompt}]
             }
         )
+        response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"⚠️ OpenRouter failed: {e}")
+        print(f"⚠️ OpenRouter failed: {repr(e)}")
         return None
 
-# --- Provider 4: NVIDIA ---
 def generate_with_nvidia(prompt):
     try:
         response = requests.post(
@@ -74,40 +76,35 @@ def generate_with_nvidia(prompt):
                 "messages": [{"role": "user", "content": prompt}]
             }
         )
+        response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
-        print(f"⚠️ NVIDIA failed: {e}")
+        print(f"⚠️ NVIDIA failed: {repr(e)}")
         return None
 
-# --- The Waterfall Chain ---
 def write_script(topic, video_type="long"):
     print(f"✍️ Writing script for: {topic}")
     prompt = build_prompt(topic, video_type)
 
-    # Try 1: Gemini
     script = generate_with_gemini(prompt)
     if script: 
         print("✅ Script written by Gemini")
         return script
 
-    # Try 2: Groq
     script = generate_with_groq(prompt)
     if script: 
         print("✅ Script written by Groq")
         return script
 
-    # Try 3: OpenRouter
     script = generate_with_openrouter(prompt)
     if script: 
         print("✅ Script written by OpenRouter")
         return script
 
-    # Try 4: NVIDIA
     script = generate_with_nvidia(prompt)
     if script: 
         print("✅ Script written by NVIDIA")
         return script
 
-    # If all fail
     print("❌ All AI providers failed. Returning placeholder.")
     return f"Script generation failed for topic: {topic}"
