@@ -33,7 +33,14 @@ def get(url, **kw):
 
 
 # ------------------------------------------------------------------ Gemini + Google Search (also used by explainer.py)
+_grounding_dead = False
+
+
 def grounded(prompt):
+    """Gemini + Google Search tool. Often has NO free quota, so one failure switches it off for the whole run."""
+    global _grounding_dead
+    if _grounding_dead:
+        raise RuntimeError("Gemini search tool unavailable (skipped).")
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY missing (needed for the Google-Search tool).")
@@ -49,8 +56,11 @@ def grounded(prompt):
             text = "".join(p.get("text", "") for p in cand["content"]["parts"])
             chunks = cand.get("groundingMetadata", {}).get("groundingChunks", [])
             return text, [c["web"]["uri"] for c in chunks if "web" in c]
-        last = f"{model}: {r.status_code} {r.text[:200]}"
+        last = f"{model}: {r.status_code} {r.text[:150]}"
         print("[fail]", last)
+        if r.status_code == 429:
+            break                   # quota: other Gemini models will say the same
+    _grounding_dead = True
     raise RuntimeError("Search-grounded call failed -> " + last)
 
 
