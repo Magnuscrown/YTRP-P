@@ -3,7 +3,7 @@ import os
 from config import OUTPUT_DIR, CHARACTER_PROMPT
 
 def generate_image(prompt, output_filename, width=1920, height=1080):
-    print(f"🎨 Generating image: {output_filename}...")
+    print(f"🎨 Generating image: {output_filename} ({width}x{height})...")
     url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width={width}&height={height}&nologo=true"
     
     try:
@@ -23,12 +23,18 @@ def generate_image(prompt, output_filename, width=1920, height=1080):
         img.save(output_path)
         return output_path
 
-def create_visuals(topic):
-    # 1. Generate the background
+def create_visuals(topic, is_short=False):
+    # 1. Set dimensions based on video type
+    if is_short:
+        width, height = 1080, 1920  # Vertical for Shorts
+    else:
+        width, height = 1920, 1080  # Horizontal for Long videos
+
+    # 2. Generate the background
     bg_prompt = f"Cinematic, highly detailed, 2D vector art background for a YouTube video about {topic}. Clean, minimal, bright."
-    bg_path = generate_image(bg_prompt, f"bg_{topic.replace(' ', '_')}.jpg")
+    bg_path = generate_image(bg_prompt, f"bg_{topic.replace(' ', '_')}.jpg", width=width, height=height)
     
-    # 2. Generate the consistent main character (Magnus)
+    # 3. Generate the consistent main character (Magnus)
     char_path = generate_image(CHARACTER_PROMPT, "magnus_character.png", width=512, height=512)
     
     return bg_path, char_path
