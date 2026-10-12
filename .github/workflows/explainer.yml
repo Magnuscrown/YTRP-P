@@ -33,6 +33,7 @@ jobs:
       TOPIC: ${{ inputs.topic }}
       IMAGE_BUDGET: "400"
       BURSTS: "0"
+      FACTCHECK: "soft"
       ACTION_BEATS: "4"
       LIVING: "1"
     steps:
@@ -71,6 +72,7 @@ jobs:
             out/part_04.mp4
             out/series.json
             out/factcheck.json
+            out/needs_review.txt
             out/topic_candidates.json
             out/titles.txt
             out/shorts_titles.txt
