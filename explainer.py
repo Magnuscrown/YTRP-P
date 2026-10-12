@@ -105,20 +105,33 @@ Return JSON: {{"beats": [{{"line": "...", "image": "..."}}, {{"line": "...", "im
 
 
 # ------------------------------------------------------------------ 3. fact-check (every claim: search, then the AI judges from the snippets)
+def _no_evidence(empty, total):
+    raise SystemExit(f"STOP: the search engines found nothing for {empty} of {total} claims, so they CANNOT be checked "
+                     "(this is not the script's fault). Add a free TAVILY_API_KEY (or BRAVE_API_KEY) secret: "
+                     "DuckDuckGo and Wikipedia alone are not reliable from GitHub's computers.")
+
+
 def check_claims(beats):
     narration = "\n".join(f"{i}: {b['line']}" for i, b in enumerate(beats))
     claims = ask_json(f"""List the FACTUAL claims in these numbered narration lines (numbers, costs, laws, rules, processes,
 "always/never" statements). Skip opinions and the disclaimer. Maximum 30, most important first.
 Return JSON: {{"claims": [{{"line": 0, "claim": "...", "search": "a short web search query that would verify it"}}]}}
 {narration}""", "Reply with JSON only.")["claims"][:30]
-    results, sources = [], []
+    results, sources, empty = [], [], 0
     for i in range(0, len(claims), 4):
         batch = claims[i:i + 4]
-        block = ""
+        block, batch_empty = "", 0
         for j, c in enumerate(batch):
             found = websearch.search(c.get("search") or c["claim"], 5)
+            empty += 0 if found else 1
+            batch_empty += 0 if found else 1
             sources += [r["url"] for r in found[:3]]
             block += f"\nCLAIM {j} (line {c['line']}): {c['claim']}\nSNIPPETS:\n{websearch.snippets_text(found, 5) or '(none found)'}\n"
+        if i + len(batch) >= 6 and empty == i + len(batch):      # nothing found for the first 6+ claims: stop early
+            _no_evidence(empty, len(claims))
+        if batch_empty == len(batch):                            # no evidence at all: do not ask the AI to guess
+            results += [{"line": c["line"], "claim": c["claim"], "verdict": "UNSURE", "correction": ""} for c in batch]
+            continue
         res = ask_json(f"""Judge each claim using ONLY its snippets. Be strict.
 TRUE = a snippet clearly supports it. FALSE = a snippet contradicts it. UNSURE = no snippet clearly supports it.
 {block}
@@ -129,6 +142,8 @@ Return JSON only: {{"results": [{{"claim_no": 0, "verdict": "TRUE|FALSE|UNSURE",
             if 0 <= n < len(batch):
                 results.append({"line": batch[n]["line"], "claim": batch[n]["claim"],
                                 "verdict": r.get("verdict", "UNSURE"), "correction": r.get("correction", "")})
+    if claims and empty / len(claims) > 0.5:
+        _no_evidence(empty, len(claims))
     bad = [r for r in results if str(r.get("verdict", "")).upper() != "TRUE"]
     return results, bad, sorted(set(sources))
 
