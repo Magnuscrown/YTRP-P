@@ -41,8 +41,8 @@ def main():
         audio_path = f"{topic_key}_voice.mp3"
         make_voice(script, audio_path)
         
-        # 3. Generate Visuals (Background + Character)
-        bg_path, char_path = create_visuals(topic)
+        # 3. Generate Visuals (Background + Character) - NOW WITH ORIENTATION
+        bg_path, char_path = create_visuals(topic, is_short)
 
         # 4. Create Thumbnail
         thumb_name = f"{topic_key}_thumbnail.jpg"
