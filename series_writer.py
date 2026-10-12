@@ -13,7 +13,7 @@ import os, sys, json, re, requests
 # and pick the best match automatically. To force a model, set e.g. GROQ_MODEL as a secret.
 PROVIDERS = [
     ("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
-     "GEMINI_MODEL", ["2.5-flash", "flash", "pro"]),
+     "GEMINI_MODEL", ["flash", "pro"]),
     ("groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY",
      "GROQ_MODEL", ["gpt-oss-120b", "llama-3.3-70b", "llama-4", "qwen", "llama"]),
     ("cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY",
@@ -51,7 +51,9 @@ def candidates(name, base, key, override_env, prefs):
         low = i.lower()
         k = next((n for n, p in enumerate(prefs) if p in low), len(prefs))
         unstable = any(w in low for w in ("preview", "exp", "latest", "thinking"))
-        return (k, unstable, len(i))
+        m = re.search(r"(\d+(?:\.\d+)?)", low)
+        version = float(m.group(1)) if m else 0.0
+        return (k, unstable, "lite" in low, -version, len(i))     # best keyword match, then newest version
 
     ids.sort(key=rank)
     _cache[name] = ids[:4]
