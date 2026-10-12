@@ -12,7 +12,8 @@ Honest limit: AI fact-checking helps a lot but is NOT perfect. Read out/factchec
 """
 import os, sys, json, time, argparse
 from series_writer import ask_json, parse_json
-from topics import grounded, best_topic, mark_used
+from topics import best_topic, mark_used
+import websearch
 
 OUT = "out"
 SIDE_A = os.getenv("LABEL_A", "POOR WAY")
@@ -22,15 +23,33 @@ POINTS = int(os.getenv("POINTS") or 16)      # points per side: 16 = about 10 mi
 PER = 3                                      # beats per point
 
 
-# ------------------------------------------------------------------ 1. research
+# ------------------------------------------------------------------ 1. research (several search engines + the AI reads the snippets)
 def research(topic):
-    text, sources = grounded(f"""Using Google Search, collect 12 accurate, specific, checkable facts for a video about:
-"{topic}". Cover both sides if it is a comparison. Include numbers, rules, costs or steps where they matter, and say if something
-differs by country (assume the USA unless the topic says otherwise). Do NOT include anything you cannot support.
-Return JSON only: {{"facts": [{{"fact": "...", "detail": "..."}}]}}""")
-    facts = parse_json(text)["facts"]
-    print(f"[ok] research: {len(facts)} facts, {len(set(sources))} sources")
-    return facts, sorted(set(sources))
+    qs = ask_json(f"""Write 6 different web search queries to research a video about: "{topic}".
+Include queries for numbers/costs, step-by-step process, legal or tax rules (USA unless the topic says otherwise), and common mistakes.
+Return JSON: {{"queries": ["...", "..."]}}""", "Reply with JSON only.")["queries"][:6]
+    results = []
+    for q in qs:
+        results += websearch.search(q, 6)
+    if not results:
+        raise SystemExit("STOP: no search engine returned anything. Check the [search:...] lines in the log.")
+    seen, uniq = set(), []
+    for r in results:
+        if r["url"] not in seen:
+            seen.add(r["url"])
+            uniq.append(r)
+    text = "\n".join(f"[{i + 1}] {r['title']} ({r['url']}): {r['snippet']}" for i, r in enumerate(uniq[:40]))
+    res = ask_json(f"""From ONLY these search snippets, extract 12 accurate, specific, checkable facts for a video about "{topic}".
+Cover both sides if it is a comparison. Do NOT use anything that is not supported by a snippet. Give the number of the snippet you used.
+SNIPPETS:
+{text}
+Return JSON only: {{"facts": [{{"fact": "...", "detail": "...", "source": 1}}]}}""", "Reply with JSON only.")
+    facts = res["facts"]
+    srcs = sorted({uniq[int(f["source"]) - 1]["url"] for f in facts
+                   if str(f.get("source", "")).isdigit() and 0 < int(f["source"]) <= len(uniq)})
+    engines = sorted({r["engine"] for r in uniq})
+    print(f"[ok] research: {len(facts)} facts from {len(uniq)} results (engines: {', '.join(engines)})")
+    return facts, srcs
 
 
 # ------------------------------------------------------------------ 2. write the script
@@ -85,20 +104,31 @@ Return JSON: {{"beats": [{{"line": "...", "image": "..."}}, {{"line": "...", "im
     return plan, hook_beat, a + b + tail
 
 
-# ------------------------------------------------------------------ 3. fact-check (every claim, with search)
+# ------------------------------------------------------------------ 3. fact-check (every claim: search, then the AI judges from the snippets)
 def check_claims(beats):
     narration = "\n".join(f"{i}: {b['line']}" for i, b in enumerate(beats))
-    claims = ask_json(f"""List every FACTUAL claim in these numbered narration lines (numbers, costs, laws, rules, processes,
-"always/never" statements). Skip opinions and the disclaimer. Return JSON: {{"claims": [{{"line": 0, "claim": "..."}}]}}
-{narration}""", "Reply with JSON only.")["claims"]
+    claims = ask_json(f"""List the FACTUAL claims in these numbered narration lines (numbers, costs, laws, rules, processes,
+"always/never" statements). Skip opinions and the disclaimer. Maximum 30, most important first.
+Return JSON: {{"claims": [{{"line": 0, "claim": "...", "search": "a short web search query that would verify it"}}]}}
+{narration}""", "Reply with JSON only.")["claims"][:30]
     results, sources = [], []
-    for i in range(0, len(claims), 8):
-        batch = claims[i:i + 8]
-        text, src = grounded(f"""Check each claim using Google Search. Be strict: if you cannot find support, say UNSURE.
-Claims: {json.dumps(batch)}
-Return JSON only: {{"results": [{{"line": 0, "claim": "...", "verdict": "TRUE|FALSE|UNSURE", "correction": "what is actually true, or empty"}}]}}""")
-        results += parse_json(text)["results"]
-        sources += src
+    for i in range(0, len(claims), 4):
+        batch = claims[i:i + 4]
+        block = ""
+        for j, c in enumerate(batch):
+            found = websearch.search(c.get("search") or c["claim"], 5)
+            sources += [r["url"] for r in found[:3]]
+            block += f"\nCLAIM {j} (line {c['line']}): {c['claim']}\nSNIPPETS:\n{websearch.snippets_text(found, 5) or '(none found)'}\n"
+        res = ask_json(f"""Judge each claim using ONLY its snippets. Be strict.
+TRUE = a snippet clearly supports it. FALSE = a snippet contradicts it. UNSURE = no snippet clearly supports it.
+{block}
+Return JSON only: {{"results": [{{"claim_no": 0, "verdict": "TRUE|FALSE|UNSURE", "correction": "what the snippets say is true, or empty"}}]}}""",
+                       "You are a strict fact-checker. Reply with JSON only.")["results"]
+        for r in res:
+            n = int(r.get("claim_no", 0))
+            if 0 <= n < len(batch):
+                results.append({"line": batch[n]["line"], "claim": batch[n]["claim"],
+                                "verdict": r.get("verdict", "UNSURE"), "correction": r.get("correction", "")})
     bad = [r for r in results if str(r.get("verdict", "")).upper() != "TRUE"]
     return results, bad, sorted(set(sources))
 
