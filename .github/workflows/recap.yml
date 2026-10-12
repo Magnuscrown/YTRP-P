@@ -51,7 +51,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install requests edge-tts faster-whisper pillow
+          pip install requests edge-tts faster-whisper pillow gTTS piper-tts
       - name: Make the recap
         run: |
           printf '%s' "$SYNOPSIS" > synopsis.txt
