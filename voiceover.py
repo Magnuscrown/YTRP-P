@@ -2,6 +2,7 @@ import edge_tts
 import re
 import os
 from config import VOICE_NAME, VOICE_RATE, VOICE_PITCH, OUTPUT_DIR
+import asyncio
 
 def clean_script_for_voice(script_text):
     """Removes bracketed character actions like [Character smiles] before TTS."""
@@ -24,7 +25,5 @@ async def generate_voiceover(script_text, output_filename):
     print(f"✅ Voiceover saved: {output_path}")
     return output_path
 
-# Helper to run async function from synchronous code
-import asyncio
 def make_voice(script_text, output_filename):
     asyncio.run(generate_voiceover(script_text, output_filename))
