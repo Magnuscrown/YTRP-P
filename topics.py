@@ -20,6 +20,12 @@ SEEDS = (os.getenv("TOPIC_SEEDS") or "how to start a business with little money|
          "passive income ideas").split("|")
 HEAD = {"User-Agent": "Mozilla/5.0 (compatible; topic-research/1.0)"}
 SOURCES = ["youtube", "google", "bing", "trends", "gemini", "reddit", "hackernews"]
+# YouTube is where the video will be posted, so what people type there counts the most
+WEIGHT = {"youtube": 2.0, "trends": 1.5, "google": 1.0, "bing": 1.0, "gemini": 1.0, "reddit": 0.75, "hackernews": 0.5}
+
+
+def weighted(srcs):
+    return sum(WEIGHT.get(s, 1.0) for s in srcs)
 
 
 def get(url, **kw):
@@ -179,7 +185,7 @@ def used_topics():
 
 
 def rank(found):
-    pool = sorted(found.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:120]
+    pool = sorted(found.items(), key=lambda kv: (-weighted(kv[1]), kv[0]))[:120]
     listing = "\n".join(f"- {p}  [{', '.join(sorted(s))}]" for p, s in pool)
     res = ask_json(f"""These are phrases people are searching for or discussing right now (with the sources that showed them):
 {listing}
@@ -196,7 +202,12 @@ Return JSON: {{"topics": [{{"topic": "honest video title idea", "search_phrase":
             continue                                                  # already used
         srcs = evidence(t["search_phrase"], found) | evidence(t["topic"], found)
         t["sources"] = sorted(srcs)
-        t["score"] = len(srcs) * 2 + float(t.get("demand", 5))
+        score = weighted(srcs) * 2 + float(t.get("demand", 5))
+        if "youtube" in srcs and len(srcs) >= 2:
+            score += 3            # seen on YouTube AND somewhere else = real demand
+        if "youtube" not in srcs:
+            score -= 4            # nobody typed it on YouTube: risky for a YouTube video
+        t["score"] = score
         ranked.append(t)
     ranked.sort(key=lambda t: -t["score"])
     for t in ranked[:3]:                                              # competition check only for the best few
