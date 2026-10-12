@@ -41,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install requests edge-tts pillow ddgs
+          pip install requests edge-tts pillow ddgs json-repair
       - name: Find topic, research, write and FACT-CHECK
         run: python explainer.py --topic "$TOPIC"
       - name: Render the long video (horizontal)
