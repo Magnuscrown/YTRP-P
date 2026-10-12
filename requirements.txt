@@ -1,5 +1,5 @@
 moviepy==1.0.3
-edge-tts==6.1.9
+edge-tts==7.2.8
 litellm==1.84.0
 Pillow==10.2.0
 requests==2.31.0
