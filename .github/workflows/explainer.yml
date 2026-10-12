@@ -26,12 +26,15 @@ jobs:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       GOOGLE_CSE_KEY: ${{ secrets.GOOGLE_CSE_KEY }}
       GOOGLE_CSE_CX: ${{ secrets.GOOGLE_CSE_CX }}
       TOPIC: ${{ inputs.topic }}
       IMAGE_BUDGET: "400"
       BURSTS: "0"
+      ACTION_BEATS: "4"
+      LIVING: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
