@@ -25,6 +25,10 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      GOOGLE_CSE_KEY: ${{ secrets.GOOGLE_CSE_KEY }}
+      GOOGLE_CSE_CX: ${{ secrets.GOOGLE_CSE_CX }}
       TOPIC: ${{ inputs.topic }}
       IMAGE_BUDGET: "400"
       BURSTS: "0"
@@ -37,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          pip install requests edge-tts pillow
+          pip install requests edge-tts pillow ddgs
       - name: Find topic, research, write and FACT-CHECK
         run: python explainer.py --topic "$TOPIC"
       - name: Render the long video (horizontal)
