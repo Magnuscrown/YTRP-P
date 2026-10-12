@@ -85,7 +85,10 @@ Return JSON: {{"beats": [{{"line": "...", "image": "..."}}]}}""", "Reply with JS
             bs = res["beats"]
             for j, b in enumerate(bs):
                 pt = i + (j * len(batch)) // max(1, len(bs))           # which point this beat belongs to
-                out.append({"line": b["line"].strip(), "image": b["image"].strip(), "label": label, "pt": pt})
+                beat = {"line": b["line"].strip(), "image": b["image"].strip(), "label": label, "pt": pt}
+                if os.getenv("SHARE_PICTURES", "1") == "1" and j % PER == 1:
+                    beat["same_as_prev"] = True            # 3 beats per point: beats 1 and 3 get new pictures, beat 2 reuses
+                out.append(beat)
             time.sleep(1)
         return out
 
@@ -163,6 +166,29 @@ Return JSON: {{"fixes": [{{"line": 0, "new_line": "..."}}]}}""", "Reply with JSO
 
 
 # ------------------------------------------------------------------ 4. cut the 3 Shorts from the same script
+def add_actions(beats, n):
+    """Pick n well-spaced beats (with their own picture) and give each a SMALL action to animate (blink, raised hand...)."""
+    cand = [i for i, b in enumerate(beats) if not b.get("same_as_prev") and b["label"] and b["pt"] not in (-1, 999)]
+    if n <= 0 or len(cand) < n:
+        return
+    chosen = [cand[(k * len(cand)) // n + len(cand) // (2 * n)] for k in range(n)]
+    lines = {i: beats[i]["line"] for i in chosen}
+    default = ["eyes closed in a blink", "one hand raised, smiling", "head turned slightly, looking worried",
+               "pointing forward with a determined look"]
+    try:
+        res = ask_json(f"""For each narration line, describe ONE SMALL change to the cartoon picture that matches the line:
+blinking, raising a hand, a smile, a worried look, nodding or pointing. Same character, same scene, only that tiny change.
+LINES: {json.dumps(lines)}
+Return JSON: {{"edits": [{{"line": 0, "edit": "eyes closed in a blink"}}]}}""", "Reply with JSON only.")["edits"]
+        got = {int(x["line"]): x["edit"] for x in res if str(x.get("line", "")).isdigit()}
+    except Exception as ex:
+        print(f"[warn] could not write actions ({str(ex)[:80]}), using simple ones")
+        got = {}
+    for k, i in enumerate(chosen):
+        beats[i]["edit"] = got.get(i) or default[k % len(default)]
+    print(f"[ok] {len(chosen)} beats will get a small action (blink, hand raise...)")
+
+
 def make_shorts(plan, hook, beats, title):
     n = max(POINTS, 1)
     starts = sorted({0, n // 3, (2 * n) // 3}) if n >= 6 else [0]
@@ -212,6 +238,7 @@ def main():
             raise SystemExit("STOP: some claims could not be verified after 2 fixes. See out/factcheck.json. No video was made.")
     json.dump(report, open(f"{OUT}/factcheck.json", "w"), indent=2, ensure_ascii=False)
 
+    add_actions(beats, int(os.getenv("ACTION_BEATS") or 4))
     hook, body = beats[0], beats[1:]
     long_part = {"part": 1, "title": plan["title"], "narration": " ".join(b["line"] for b in beats), "beats": beats}
     shorts = make_shorts(plan, hook, body, plan["title"])
