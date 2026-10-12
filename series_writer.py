@@ -6,7 +6,7 @@ Set API keys as environment variables (GitHub Secrets later):
   GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, NVIDIA_API_KEY, CEREBRAS_API_KEY
 Models are picked automatically from each provider's live model list.
 """
-import os, sys, json, re, requests
+import os, sys, json, re, time, requests
 
 # (name, base url, key env var, optional model override env var, preferred keywords in order)
 # Model names change all the time, so we ask each provider for its CURRENT model list
@@ -61,55 +61,78 @@ def candidates(name, base, key, override_env, prefs):
     return _cache[name]
 
 
-def ask(prompt, system="You are a helpful assistant."):
-    """Try each provider (and its best models) in order. Failure or rate limit -> next one."""
+_cool = {}      # provider -> time when it may be tried again (after a rate limit or overload)
+
+
+def ask(prompt, system="You are a helpful assistant.", temperature=0.9):
+    """Try each provider (and its best models). A provider that says "rate limit" is rested for a while,
+    and if EVERY provider is busy we wait and try again instead of crashing."""
     errors = []
-    for name, base, key_env, override_env, prefs in PROVIDERS:
-        key = os.getenv(key_env)
-        if not key:
-            continue
-        for model in candidates(name, base, key, override_env, prefs):
-            try:
-                r = requests.post(
-                    base + "/chat/completions",
-                    headers={"Authorization": f"Bearer {key}"},
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.9,
-                    },
-                    timeout=120,
-                )
-                if r.status_code != 200:
-                    msg = f"{name}/{model}: {r.status_code} {r.text[:200]}"
+    for attempt in range(5):
+        tried = False
+        for name, base, key_env, override_env, prefs in PROVIDERS:
+            key = os.getenv(key_env)
+            if not key or _cool.get(name, 0) > time.time():
+                continue
+            tried = True
+            for model in candidates(name, base, key, override_env, prefs):
+                try:
+                    r = requests.post(
+                        base + "/chat/completions",
+                        headers={"Authorization": f"Bearer {key}"},
+                        json={"model": model, "temperature": temperature,
+                              "messages": [{"role": "system", "content": system},
+                                           {"role": "user", "content": prompt}]},
+                        timeout=120,
+                    )
+                    if r.status_code != 200:
+                        msg = f"{name}/{model}: {r.status_code} {r.text[:150]}"
+                        print("[fail]", msg)
+                        errors.append(msg)
+                        if r.status_code == 429:
+                            _cool[name] = time.time() + 90      # rate limit / quota: rest this provider
+                            break
+                        if r.status_code in (401, 403):
+                            _cool[name] = time.time() + 3600    # bad key: do not retry this run
+                            break
+                        if r.status_code in (500, 502, 503, 504):
+                            _cool[name] = time.time() + 30
+                        continue
+                    text = r.json()["choices"][0]["message"]["content"]
+                    print(f"[ok] answered by {name}/{model}")
+                    return text
+                except Exception as e:
+                    msg = f"{name}/{model}: {str(e)[:120]}"
                     print("[fail]", msg)
                     errors.append(msg)
-                    if r.status_code in (401, 403, 429):
-                        break  # bad key or rate limit: skip the rest of this provider
-                    continue
-                text = r.json()["choices"][0]["message"]["content"]
-                print(f"[ok] answered by {name}/{model}")
-                return text
-            except Exception as e:
-                msg = f"{name}/{model}: {e}"
-                print("[fail]", msg)
-                errors.append(msg)
-    raise RuntimeError("All providers failed -> " + " | ".join(errors))
+                    if "timed out" in str(e):
+                        _cool[name] = time.time() + 30
+                        break
+        waits = [t - time.time() for n, t in _cool.items() if t > time.time()]
+        wait = min(max(5, min(waits) if waits else 20), 60)
+        print(f"[wait] all providers busy or limited, waiting {wait:.0f}s (round {attempt + 1}/5)")
+        time.sleep(wait)
+    raise RuntimeError("All providers failed -> " + " | ".join(errors[-6:]))
 
 
 def parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip()
     start, end = text.find("{"), text.rfind("}")
-    return json.loads(text[start:end + 1])
+    chunk = text[start:end + 1]
+    try:
+        return json.loads(chunk)
+    except json.JSONDecodeError:
+        try:                                    # the AI sometimes forgets a comma or quote: repair it
+            from json_repair import repair_json
+            return json.loads(repair_json(chunk))
+        except ImportError:
+            raise
 
 
 def ask_json(prompt, system="You write original, emotional short-form story series. Reply with JSON only."):
     for attempt in range(3):
         try:
-            return parse_json(ask(prompt, system))
+            return parse_json(ask(prompt, system, temperature=0.6))
         except Exception as e:
             print(f"[retry] bad JSON ({str(e)[:120]})")
     raise RuntimeError("Could not get valid JSON")
