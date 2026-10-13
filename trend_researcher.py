@@ -8,6 +8,18 @@ USED_TOPICS_FILE = "used_topics.json"
 # Tier-1 English-speaking countries (highest YouTube RPM)
 TIER1_REGIONS = ["us", "us", "us", "gb", "ca", "au"]
 
+# Countries/regions that have LOW RPM — filter these out of suggestions
+BLOCKED_TERMS = [
+    "kenya", "india", "nigeria", "pakistan", "philippines",
+    "indonesia", "bangladesh", "vietnam", "thailand", "egypt",
+    "ghana", "south africa", "morocco", "algeria", "tunisia",
+    "brazil", "mexico", "argentina", "colombia", "peru",
+    "in hindi", "in urdu", "in tamil", "in telugu", "in arabic",
+    "in swahili", "in spanish", "in portuguese", "in french",
+    "in german", "in russian", "in chinese", "in japanese",
+    "in korean", "in turkish", "in indonesian"
+]
+
 # --- Big pools of seed queries (each category has ~30 angles) ---
 FINANCE_SEEDS = [
     "how to save money fast",
@@ -142,7 +154,7 @@ def get_youtube_suggestions(query, region="us"):
 
 
 def pick_unique_topic(seeds, used_topics, label):
-    """Pick a random seed, fetch YouTube suggestions from a tier-1 country, return first unused."""
+    """Pick a random seed, fetch YouTube suggestions, filter junk, return first unused."""
     random.shuffle(seeds)
 
     for seed in seeds[:10]:  # Try up to 10 seeds
@@ -152,9 +164,13 @@ def pick_unique_topic(seeds, used_topics, label):
 
         for suggestion in suggestions:
             s_clean = suggestion.strip().lower()
-            if not s_clean:
+            if not s_clean or len(s_clean) < 10:
                 continue
             if s_clean in used_topics:
+                continue
+            # Filter non-tier-1 country stuff
+            if any(term in s_clean for term in BLOCKED_TERMS):
+                print(f"⏭️ Skipped non-tier-1: {suggestion}")
                 continue
             # Avoid near-duplicates of used topics
             if any(s_clean in u or u in s_clean for u in used_topics if len(u) > 15):
