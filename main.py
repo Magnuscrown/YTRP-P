@@ -2,40 +2,48 @@ import os
 from trend_researcher import research_topics
 from script_writer import write_script
 from voiceover import make_voice
-from config import OUTPUT_DIR
+from visuals import create_visuals
+from render import render_video
+from config import OUTPUT_DIR, IMAGES_LONG, IMAGES_SHORT
+
 
 def main():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    print("🚀 Starting Magnus AI Machine (Script + Voice Only)...")
+    print("🚀 Magnus AI Machine — Cinematic Finance Edition")
     topics = research_topics()
     print(f"📌 Topics: {topics}")
 
     pipeline = [
-        ("long_finance", "long"),
-        ("long_general", "long"),
-        ("short_finance", "short"),
-        ("short_general", "short"),
-        ("short_curious", "short")
+        ("long_finance", "long", False, IMAGES_LONG),
+        ("long_general", "long", False, IMAGES_LONG),
+        ("short_finance", "short", True, IMAGES_SHORT),
+        ("short_general", "short", True, IMAGES_SHORT),
+        ("short_curious", "short", True, IMAGES_SHORT),
     ]
 
-    for topic_key, video_type in pipeline:
-        topic = topics[topic_key]
-        print(f"\n--- 🎬 Processing: {topic} ---")
+    for key, video_type, is_short, num_images in pipeline:
+        topic = topics[key]
+        print(f"\n━━━ 🎬 {key.upper()}: {topic} ━━━")
 
-        # 1. Write script
+        # 1. Script
         script = write_script(topic, video_type)
-        script_path = f"{OUTPUT_DIR}/{topic_key}.txt"
-        with open(script_path, "w") as f:
+        with open(f"{OUTPUT_DIR}/{key}.txt", "w") as f:
             f.write(script)
-        print(f"📄 Script saved: {script_path}")
 
-        # 2. Generate voice
-        audio_filename = f"{topic_key}.mp3"
-        make_voice(script, audio_filename)
+        # 2. Voice
+        audio = f"{key}.mp3"
+        make_voice(script, audio)
 
-    print("\n✅ DONE. Download the artifact to hear your voices.")
+        # 3. Images
+        images = create_visuals(topic, num_images, is_short)
+
+        # 4. Render
+        render_video(images, os.path.join(OUTPUT_DIR, audio), topic, is_short)
+
+    print("\n✅ ALL DONE. Check output/ folder.")
+
 
 if __name__ == "__main__":
     main()
