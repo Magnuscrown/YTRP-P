@@ -2,124 +2,72 @@ import requests
 import json
 import os
 import random
+import itertools
 
 USED_TOPICS_FILE = "used_topics.json"
 
-# Tier-1 English-speaking countries (highest YouTube RPM)
+# Tier-1 English-speaking countries with highest YouTube RPM
 TIER1_REGIONS = ["us", "us", "us", "gb", "ca", "au"]
 
-# Countries/regions that have LOW RPM — filter these out of suggestions
-BLOCKED_TERMS = [
-    "kenya", "india", "nigeria", "pakistan", "philippines",
-    "indonesia", "bangladesh", "vietnam", "thailand", "egypt",
-    "ghana", "south africa", "morocco", "algeria", "tunisia",
-    "brazil", "mexico", "argentina", "colombia", "peru",
-    "in hindi", "in urdu", "in tamil", "in telugu", "in arabic",
-    "in swahili", "in spanish", "in portuguese", "in french",
-    "in german", "in russian", "in chinese", "in japanese",
-    "in korean", "in turkish", "in indonesian"
-]
-
-# --- Big pools of seed queries (each category has ~30 angles) ---
-FINANCE_SEEDS = [
-    "how to save money fast",
-    "how to invest for beginners",
-    "how to protect your money",
-    "how to grow your money",
-    "best passive income ideas",
-    "how to budget your money",
-    "emergency fund tips",
-    "dividend stocks for beginners",
-    "how to pay off debt fast",
-    "side hustle ideas",
-    "money mistakes to avoid",
+# ============================================================
+# ROOT KEYWORDS — these are just "entry points"
+# The machine recurses into YouTube autocomplete to generate
+# HUNDREDS of unique finance/business/motivation queries.
+# No finite pool. No rotation. Fresh every run.
+# ============================================================
+ROOT_KEYWORDS = [
+    "how to make money",
+    "how to save money",
+    "how to invest",
     "how to build wealth",
-    "index funds explained",
+    "how to start a business",
+    "how to grow a business",
+    "how to be rich",
+    "how to be successful",
+    "how to be disciplined",
+    "how to think like a rich person",
+    "why rich people",
+    "why poor people",
+    "money mindset",
+    "financial freedom",
+    "passive income",
+    "side hustle",
     "how to retire early",
-    "compound interest explained",
-    "how to negotiate salary",
-    "cheap living tips",
-    "how to stop overspending",
-    "best savings accounts",
-    "how to make your first 1000",
-    "tax saving tips",
-    "how to invest with little money",
-    "credit score explained",
-    "how to become a millionaire",
-    "financial freedom tips",
-    "why rich people stay rich",
-    "why poor people stay poor",
-    "how banks make money",
-    "inflation explained",
-    "how to buy your first house"
+    "how to pay off debt",
+    "how to budget",
+    "how to negotiate",
+    "how to earn more",
+    "how to save your first",
+    "how millionaires",
+    "how billionaires",
+    "business ideas",
+    "small business tips",
+    "entrepreneur mindset",
+    "success habits",
+    "discipline motivation",
+    "self improvement money",
+    "how to change your life",
+    "how to stop being poor",
+    "how to escape the rat race",
+    "how to become financially free",
+    "how money works",
+    "how banks work",
+    "how the economy works",
+    "how inflation works",
+    "how to protect your wealth",
+    "how to build multiple income streams",
 ]
 
-GENERAL_SEEDS = [
-    "trending topics today",
-    "viral questions this week",
-    "most searched questions",
-    "life hacks everyone should know",
-    "why do people",
-    "how does work",
-    "biggest mysteries explained",
-    "psychology facts",
-    "habits of successful people",
-    "history facts",
-    "science explained simply",
-    "how things are made",
-    "top 10 facts about",
-    "things you didn't know",
-    "amazing inventions",
-    "space facts",
-    "ocean mysteries",
-    "human body facts",
-    "animal facts",
-    "food facts",
-    "why is the sky blue",
-    "how the internet works",
-    "how ai works",
-    "hidden rules of society",
-    "why do we dream",
-    "world records",
-    "historical mysteries",
-    "future technology",
-    "ancient civilizations",
-    "everyday objects explained"
+# Question starters to expand depth
+QUESTION_PREFIXES = [
+    "how to", "why do", "what is", "what if", "when should",
+    "where to", "which is better", "who is", "can you", "should i",
 ]
 
-CURIOUS_SEEDS = [
-    "what if you woke up in",
-    "what if money didn't exist",
-    "what if the internet disappeared",
-    "what if humans could fly",
-    "what if the sun disappeared",
-    "what if you could time travel",
-    "what if gravity stopped",
-    "what if you never slept",
-    "what if everyone was rich",
-    "what if the oceans dried up",
-    "what if ai took over",
-    "what if you were the last person on earth",
-    "what if you lived underwater",
-    "what if trees could talk",
-    "what if you could read minds",
-    "what if the moon crashed into earth",
-    "what if electricity stopped",
-    "what if you aged backwards",
-    "what if you were invisible",
-    "what if there were no laws",
-    "what if you lived forever",
-    "what if every day was monday",
-    "what if you could teleport",
-    "what if ants were as big as humans",
-    "what if you woke up as an animal",
-    "what if all volcanoes erupted",
-    "what if you could freeze time",
-    "what if the earth stopped spinning",
-    "what if you had a photographic memory",
-    "what if you never felt pain"
-]
 
+# ============================================================
+# MEMORY (prevents topic repeats across ALL runs, forever)
+# ============================================================
 
 def load_used_topics():
     if os.path.exists(USED_TOPICS_FILE):
@@ -132,85 +80,156 @@ def load_used_topics():
 
 
 def save_used_topics(used):
+    # Keep ALL used topics (not just last 200) — we want permanent memory
     with open(USED_TOPICS_FILE, "w") as f:
-        json.dump(used[-200:], f, indent=2)  # Keep last 200
+        json.dump(used, f, indent=2)
 
 
-def get_youtube_suggestions(query, region="us"):
-    """Fetch YouTube autocomplete for a SPECIFIC country (tier-1)."""
+# ============================================================
+# AUTOCOMPLETE FETCHER
+# ============================================================
+
+def yt_suggest(query, region="us"):
+    """Fetch live YouTube autocomplete suggestions for a query/country."""
     try:
         url = (
             f"http://suggestqueries.google.com/complete/search"
-            f"?client=firefox&ds=yt&hl=en&gl={region}&q={requests.utils.quote(query)}"
+            f"?client=firefox&ds=yt&hl=en&gl={region}"
+            f"&q={requests.utils.quote(query)}"
         )
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
             return data[1] if len(data) > 1 else []
         return []
     except Exception as e:
-        print(f"⚠️ Suggestion fetch failed for '{query}' [{region}]: {e}")
+        print(f"⚠️ Suggest failed for '{query}' [{region}]: {e}")
         return []
 
 
-def pick_unique_topic(seeds, used_topics, label):
-    """Pick a random seed, fetch YouTube suggestions, filter junk, return first unused."""
-    random.shuffle(seeds)
+# ============================================================
+# RECURSIVE MINING — pulls hundreds of unique queries per run
+# ============================================================
 
-    for seed in seeds[:10]:  # Try up to 10 seeds
+def mine_topics(used_set, target_count=50):
+    """
+    Recursively expand root keywords through YouTube autocomplete.
+    Returns up to `target_count` unique, unused finance queries.
+    """
+    random.shuffle(ROOT_KEYWORDS)
+    found = []
+    seen = set()
+
+    # Level 1: query each root, collect suggestions
+    level1_queries = []
+    for root in ROOT_KEYWORDS[:15]:  # take 15 roots per run
         region = random.choice(TIER1_REGIONS)
-        suggestions = get_youtube_suggestions(seed, region=region)
+        suggestions = yt_suggest(root, region=region)
         random.shuffle(suggestions)
+        for s in suggestions:
+            s_clean = s.strip().lower()
+            if not s_clean or s_clean in seen:
+                continue
+            seen.add(s_clean)
+            level1_queries.append((s_clean, region))
 
-        for suggestion in suggestions:
-            s_clean = suggestion.strip().lower()
-            if not s_clean or len(s_clean) < 10:
-                continue
-            if s_clean in used_topics:
-                continue
-            # Filter non-tier-1 country stuff
-            if any(term in s_clean for term in BLOCKED_TERMS):
-                print(f"⏭️ Skipped non-tier-1: {suggestion}")
-                continue
-            # Avoid near-duplicates of used topics
-            if any(s_clean in u or u in s_clean for u in used_topics if len(u) > 15):
-                continue
-            print(f"✅ [{label}] Picked ({region.upper()}): {suggestion}")
-            return suggestion
+        if len(level1_queries) >= target_count * 2:
+            break
 
-    # Fallback: use a random seed itself
-    fallback = random.choice(seeds)
-    print(f"⚠️ [{label}] Using fallback: {fallback}")
-    return fallback
+    # Level 2: expand the level-1 queries further (long-tail goldmine)
+    random.shuffle(level1_queries)
+    level2_queries = []
+    for query, _ in level1_queries[:25]:
+        region = random.choice(TIER1_REGIONS)
+        suggestions = yt_suggest(query, region=region)
+        random.shuffle(suggestions)
+        for s in suggestions:
+            s_clean = s.strip().lower()
+            if not s_clean or s_clean in seen:
+                continue
+            seen.add(s_clean)
+            level2_queries.append((s_clean, region))
 
+        if len(level1_queries) + len(level2_queries) >= target_count * 3:
+            break
+
+    # Combine all candidates
+    all_candidates = level1_queries + level2_queries
+    random.shuffle(all_candidates)
+
+    # Filter: keep only finance/money/business/motivation related + not used
+    FINANCE_MARKERS = [
+        "money", "rich", "wealth", "invest", "finance", "financ", "business",
+        "income", "salary", "job", "career", "budget", "save", "saving",
+        "debt", "loan", "credit", "bank", "stock", "invest", "trade", "trading",
+        "millionaire", "billionaire", "success", "successful", "discipline",
+        "motivat", "hustle", "entrepreneur", "profit", "revenue", "tax",
+        "retire", "retirement", "pension", "401k", "ira", "fund", "asset",
+        "dollar", "dollars", "dollar", "euro", "pound", "cash", "coin",
+        "passive", "side hustle", "gig", "freelance", "ecommerce", "dropship",
+        "real estate", "rental", "landlord", "mortgage", "property",
+        "compound", "interest", "dividend", "yield", "return", "portfolio",
+        "hedge", "crypto", "bitcoin", "forex", "gold", "silver",
+        "boss", "employee", "employer", "startup", "founder", "ceo",
+        "frugal", "thrifty", "spend", "spending", "shopping",
+        "raise", "promotion", "interview", "resume",
+    ]
+
+    def is_finance_related(t):
+        return any(marker in t for marker in FINANCE_MARKERS)
+
+    for candidate, region in all_candidates:
+        if len(found) >= target_count:
+            break
+        if not is_finance_related(candidate):
+            continue
+        if candidate in used_set:
+            continue
+        # Avoid near-duplicates of already used topics
+        if any(candidate in u or u in candidate for u in used_set if len(u) > 20):
+            continue
+        found.append(candidate)
+
+    print(f"💎 Mined {len(found)} fresh finance topics from {len(all_candidates)} candidates")
+    return found
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def research_topics():
-    print("🔍 Researching diverse YouTube trends (tier-1 countries)...")
+    print("🔍 Mining tier-1 YouTube trends (US/UK/CA/AU) — finance/business/motivation only...")
     used = load_used_topics()
-    print(f"📚 Already used: {len(used)} topics")
+    print(f"📚 Previously used: {len(used)} topics (never repeats)")
 
-    # Use a copy of used list to avoid duplicates WITHIN this run
-    run_used = used.copy()
+    candidates = mine_topics(set(used), target_count=30)
 
-    topics = {}
+    if len(candidates) < 5:
+        print("⚠️ Not enough fresh candidates — falling back to broader mining")
+        # Broaden by dropping finance filter as a last resort
+        extra = mine_topics(set(used), target_count=20)
+        candidates.extend([c for c in extra if c not in candidates])
 
-    topics["long_finance"] = pick_unique_topic(FINANCE_SEEDS, run_used, "LONG-FINANCE")
-    run_used.append(topics["long_finance"].lower())
+    random.shuffle(candidates)
+    selected = candidates[:5]
 
-    topics["long_general"] = pick_unique_topic(GENERAL_SEEDS, run_used, "LONG-GENERAL")
-    run_used.append(topics["long_general"].lower())
+    # Safety fallback if still too few (should never happen)
+    while len(selected) < 5:
+        selected.append(f"how to make money online part {len(selected)+1}")
 
-    topics["short_finance"] = pick_unique_topic(FINANCE_SEEDS, run_used, "SHORT-FINANCE")
-    run_used.append(topics["short_finance"].lower())
+    topics = {
+        "long_finance": selected[0],
+        "long_general": selected[1],
+        "short_finance": selected[2],
+        "short_general": selected[3],
+        "short_curious": selected[4],
+    }
 
-    topics["short_general"] = pick_unique_topic(GENERAL_SEEDS, run_used, "SHORT-GENERAL")
-    run_used.append(topics["short_general"].lower())
-
-    topics["short_curious"] = pick_unique_topic(CURIOUS_SEEDS, run_used, "SHORT-CURIOUS")
-    run_used.append(topics["short_curious"].lower())
-
-    # Save the updated used-topics list
-    save_used_topics(run_used)
+    # Save all newly used
+    used.extend([t.lower() for t in selected])
+    save_used_topics(used)
+    print(f"📚 Now tracking {len(used)} used topics (memory grows forever)")
 
     return topics
 
