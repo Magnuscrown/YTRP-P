@@ -5,11 +5,11 @@ import random
 
 USED_TOPICS_FILE = "used_topics.json"
 
-# Tier-1 English-speaking countries (highest YouTube RPM)
 TIER1_REGIONS = ["us", "us", "us", "gb", "ca", "au"]
 
+
 # ============================================================
-# POOL 1: FINANCE (money, business, wealth, motivation)
+# POOL 1: FINANCE
 # ============================================================
 FINANCE_ROOTS = [
     "how to make money", "how to save money", "how to invest",
@@ -40,11 +40,11 @@ FINANCE_MARKERS = [
     "yield", "portfolio", "crypto", "bitcoin", "forex", "gold",
     "boss", "employee", "employer", "startup", "founder", "ceo",
     "frugal", "thrifty", "spend", "spending", "raise",
-    "promotion", "interview", "resume", "earn", "money mindset",
+    "promotion", "interview", "resume", "earn",
 ]
 
 # ============================================================
-# POOL 2: GENERAL (curious facts, psychology, science, history)
+# POOL 2: GENERAL
 # ============================================================
 GENERAL_ROOTS = [
     "why do people", "how does", "why is", "what is",
@@ -58,44 +58,108 @@ GENERAL_ROOTS = [
     "how ai works", "future technology",
     "ancient civilizations", "world records",
     "hidden rules of society", "everyday objects explained",
-    "why does the body", "how to improve your memory",
-    "habits that change your life", "psychology of attraction",
+    "how to improve your memory", "habits that change your life",
+    "psychology of attraction",
+]
+
+GENERAL_POSITIVE_WORDS = [
+    "why", "how", "what", "when", "where", "which",
+    "facts", "explained", "truth", "reason", "secret",
+    "psychology", "science", "history", "hidden", "discover",
+    "actually", "really", "the real",
 ]
 
 # ============================================================
-# POOL 3: CURIOUS (what if scenarios)
+# POOL 3: CURIOUS
 # ============================================================
 CURIOUS_ROOTS = [
-    "what if you woke up in",
-    "what if money didn't exist",
-    "what if the internet disappeared",
-    "what if humans could fly",
-    "what if the sun disappeared",
-    "what if you could time travel",
-    "what if gravity stopped",
-    "what if you never slept",
-    "what if the oceans dried up",
-    "what if ai took over",
+    "what if you woke up in", "what if money didn't exist",
+    "what if the internet disappeared", "what if humans could fly",
+    "what if the sun disappeared", "what if you could time travel",
+    "what if gravity stopped", "what if you never slept",
+    "what if the oceans dried up", "what if ai took over",
     "what if you were the last person on earth",
-    "what if the moon crashed",
-    "what if electricity stopped",
-    "what if you could read minds",
-    "what if you lived forever",
-    "what if you could teleport",
-    "what if ants were as big as humans",
-    "what if you could freeze time",
-    "what if the earth stopped spinning",
-    "what if you never felt pain",
-    "what if everyone was rich",
-    "what if you could see in the dark",
-    "what if animals could talk",
-    "what if we lived on mars",
-    "what if you could live underwater",
+    "what if the moon crashed", "what if electricity stopped",
+    "what if you could read minds", "what if you lived forever",
+    "what if you could teleport", "what if ants were as big as humans",
+    "what if you could freeze time", "what if the earth stopped spinning",
+    "what if you never felt pain", "what if everyone was rich",
+    "what if you could see in the dark", "what if animals could talk",
+    "what if we lived on mars", "what if you could live underwater",
 ]
 
 
 # ============================================================
-# MEMORY (permanent, prevents repeats forever)
+# STRICT FILTERS (NEW)
+# ============================================================
+
+BANNED_SUFFIXES = [
+    " reaction", " anime", " compilation", " explained", " shorts",
+    " tiktok", " music video", " trailer", " cover", " remix",
+    " meme", " funny", " clip", " gameplay", " fortnite", " roblox",
+    " minecraft", " lofi", " asmr", " podcast", " interview",
+    " behind the scenes", " tutorial", " review", " live",
+    " edit", " edits", " sound", " sounds", " status", " whatsapp",
+    " live stream", " livestream", " news", " highlights",
+]
+
+BANNED_WORDS = [
+    "mrbeast", "pewdiepie", "nba", "nfl", "fifa", "cricket",
+    "kai cenat", "ishowspeed", "drake", "taylor swift",
+    "bts", "kpop", "manga", "naruto", "one piece",
+    "genshin", "valorant", "league of legends", "csgo",
+    "huntrix", "sqft", "episode", "season", "part ",
+    "song", "lyrics", "album", "beat", "instrumental",
+    "vs ", " versus ", "drama", "beef", "exposed",
+    "name meaning", "full movie", "full video",
+]
+
+
+def is_clean(t):
+    t_lower = t.lower()
+    if any(t_lower.endswith(s) for s in BANNED_SUFFIXES):
+        return False
+    if any(w in t_lower for w in BANNED_WORDS):
+        return False
+    if len(t) < 18 or len(t) > 70:
+        return False
+    # Must have at least 4 words (filters "what is xyz" style garbage)
+    if len(t.split()) < 4:
+        return False
+    return True
+
+
+def finance_filter(t):
+    t_lower = t.lower()
+    if not is_clean(t):
+        return False
+    return any(m in t_lower for m in FINANCE_MARKERS)
+
+
+def general_filter(t):
+    t_lower = t.lower()
+    if not is_clean(t):
+        return False
+    if any(m in t_lower for m in FINANCE_MARKERS):
+        return False  # keep general separate from finance
+    if not any(w in t_lower for w in GENERAL_POSITIVE_WORDS):
+        return False
+    return True
+
+
+def curious_filter(t):
+    t_lower = t.lower()
+    if not (t_lower.startswith("what if") or t_lower.startswith("what would")):
+        return False
+    if not is_clean(t):
+        return False
+    if len(t.split()) > 12:
+        return False
+    return True
+
+
+# ============================================================
+# MEMORY
 # ============================================================
 
 def load_used_topics():
@@ -112,10 +176,6 @@ def save_used_topics(used):
     with open(USED_TOPICS_FILE, "w") as f:
         json.dump(used, f, indent=2)
 
-
-# ============================================================
-# AUTOCOMPLETE FETCHER
-# ============================================================
 
 def yt_suggest(query, region="us"):
     try:
@@ -134,18 +194,12 @@ def yt_suggest(query, region="us"):
         return []
 
 
-# ============================================================
-# RECURSIVE MINER (generic — used by all 3 pools)
-# ============================================================
-
-def mine_from_roots(roots, used_set, filter_fn, target=30, label="POOL"):
-    """Recursively expand roots through YouTube autocomplete."""
+def mine_from_roots(roots, used_set, filter_fn, target=15, label="POOL"):
     random.shuffle(roots)
-    found = []
     seen = set()
     all_candidates = []
 
-    # Level 1: query roots
+    # Level 1
     for root in roots[:15]:
         region = random.choice(TIER1_REGIONS)
         for s in yt_suggest(root, region=region):
@@ -154,10 +208,9 @@ def mine_from_roots(roots, used_set, filter_fn, target=30, label="POOL"):
                 seen.add(s_clean)
                 all_candidates.append(s_clean)
 
-    # Level 2: expand a handful of level-1 results (long-tail mining)
+    # Level 2 — expand a few level-1 results (long-tail mining)
     random.shuffle(all_candidates)
-    level1_copy = all_candidates[:20]
-    for q in level1_copy:
+    for q in all_candidates[:20]:
         region = random.choice(TIER1_REGIONS)
         for s in yt_suggest(q, region=region):
             s_clean = s.strip().lower()
@@ -166,7 +219,7 @@ def mine_from_roots(roots, used_set, filter_fn, target=30, label="POOL"):
                 all_candidates.append(s_clean)
 
     random.shuffle(all_candidates)
-
+    found = []
     for c in all_candidates:
         if len(found) >= target:
             break
@@ -178,26 +231,8 @@ def mine_from_roots(roots, used_set, filter_fn, target=30, label="POOL"):
             continue
         found.append(c)
 
-    print(f"💎 [{label}] Mined {len(found)} fresh topics from {len(all_candidates)} candidates")
+    print(f"💎 [{label}] Found {len(found)} clean topics from {len(all_candidates)} candidates")
     return found
-
-
-def finance_filter(t):
-    return any(m in t for m in FINANCE_MARKERS)
-
-
-def general_filter(t):
-    # Skip anything finance-flavored so the two channels stay distinct
-    if finance_filter(t):
-        return False
-    # Skip empty/short
-    if len(t) < 12:
-        return False
-    return True
-
-
-def curious_filter(t):
-    return t.startswith("what if") or t.startswith("what would happen")
 
 
 # ============================================================
@@ -205,34 +240,28 @@ def curious_filter(t):
 # ============================================================
 
 def research_topics():
-    print("🔍 Mining tier-1 YouTube trends (US/UK/CA/AU) — 3 pools: finance | general | curious...")
+    print("🔍 Mining tier-1 YouTube trends (US/UK/CA/AU)...")
     used = load_used_topics()
     print(f"📚 Previously used: {len(used)} topics")
 
     used_set = set(used)
 
-    # --- Pool 1: Finance ---
     finance_candidates = mine_from_roots(
-        FINANCE_ROOTS, used_set, finance_filter, target=20, label="FINANCE"
+        FINANCE_ROOTS, used_set, finance_filter, target=15, label="FINANCE"
     )
-
-    # --- Pool 2: General ---
     general_candidates = mine_from_roots(
         GENERAL_ROOTS, used_set | set(finance_candidates),
-        general_filter, target=20, label="GENERAL"
+        general_filter, target=15, label="GENERAL"
     )
-
-    # --- Pool 3: Curious ---
     curious_candidates = mine_from_roots(
         CURIOUS_ROOTS, used_set | set(finance_candidates) | set(general_candidates),
-        curious_filter, target=15, label="CURIOUS"
+        curious_filter, target=10, label="CURIOUS"
     )
 
-    # Fallbacks if any pool came up short
     if len(finance_candidates) < 2:
-        finance_candidates += ["how to make money online", "how to save money fast"]
+        finance_candidates += ["how to start investing for beginners", "how to save money every month"]
     if len(general_candidates) < 2:
-        general_candidates += ["psychology facts", "why do we dream"]
+        general_candidates += ["why do we dream at night", "how the human brain works"]
     if len(curious_candidates) < 1:
         curious_candidates += ["what if the internet disappeared"]
 
@@ -250,7 +279,7 @@ def research_topics():
 
     used.extend([t.lower() for t in topics.values()])
     save_used_topics(used)
-    print(f"📚 Now tracking {len(used)} used topics (grows forever)")
+    print(f"📚 Now tracking {len(used)} used topics")
 
     return topics
 
