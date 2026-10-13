@@ -5,7 +5,10 @@ import random
 
 USED_TOPICS_FILE = "used_topics.json"
 
-# --- Big pools of seed queries (each category has ~30 different angles) ---
+# Tier-1 English-speaking countries (highest YouTube RPM)
+TIER1_REGIONS = ["us", "us", "us", "gb", "ca", "au"]
+
+# --- Big pools of seed queries (each category has ~30 angles) ---
 FINANCE_SEEDS = [
     "how to save money fast",
     "how to invest for beginners",
@@ -105,6 +108,7 @@ CURIOUS_SEEDS = [
     "what if you never felt pain"
 ]
 
+
 def load_used_topics():
     if os.path.exists(USED_TOPICS_FILE):
         try:
@@ -114,79 +118,89 @@ def load_used_topics():
             return []
     return []
 
+
 def save_used_topics(used):
     with open(USED_TOPICS_FILE, "w") as f:
         json.dump(used[-200:], f, indent=2)  # Keep last 200
 
-def get_youtube_suggestions(query):
+
+def get_youtube_suggestions(query, region="us"):
+    """Fetch YouTube autocomplete for a SPECIFIC country (tier-1)."""
     try:
-        url = f"http://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q={query}"
+        url = (
+            f"http://suggestqueries.google.com/complete/search"
+            f"?client=firefox&ds=yt&hl=en&gl={region}&q={requests.utils.quote(query)}"
+        )
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
             return data[1] if len(data) > 1 else []
         return []
     except Exception as e:
-        print(f"⚠️ Suggestion fetch failed for '{query}': {e}")
+        print(f"⚠️ Suggestion fetch failed for '{query}' [{region}]: {e}")
         return []
 
+
 def pick_unique_topic(seeds, used_topics, label):
-    """Pick a random seed, get YouTube suggestions, return first unused one."""
+    """Pick a random seed, fetch YouTube suggestions from a tier-1 country, return first unused."""
     random.shuffle(seeds)
-    
+
     for seed in seeds[:10]:  # Try up to 10 seeds
-        suggestions = get_youtube_suggestions(seed)
+        region = random.choice(TIER1_REGIONS)
+        suggestions = get_youtube_suggestions(seed, region=region)
         random.shuffle(suggestions)
-        
+
         for suggestion in suggestions:
             s_clean = suggestion.strip().lower()
             if not s_clean:
                 continue
             if s_clean in used_topics:
                 continue
-            # Also make sure it's not too similar to a used one
+            # Avoid near-duplicates of used topics
             if any(s_clean in u or u in s_clean for u in used_topics if len(u) > 15):
                 continue
-            print(f"✅ [{label}] Picked: {suggestion}")
+            print(f"✅ [{label}] Picked ({region.upper()}): {suggestion}")
             return suggestion
-    
-    # Fallback: return a random seed itself
+
+    # Fallback: use a random seed itself
     fallback = random.choice(seeds)
     print(f"⚠️ [{label}] Using fallback: {fallback}")
     return fallback
 
+
 def research_topics():
-    print("🔍 Researching diverse YouTube trends...")
+    print("🔍 Researching diverse YouTube trends (tier-1 countries)...")
     used = load_used_topics()
     print(f"📚 Already used: {len(used)} topics")
-    
-    topics = {
-        "long_finance": pick_unique_topic(FINANCE_SEEDS, used, "LONG-FINANCE"),
-        "long_general": pick_unique_topic(GENERAL_SEEDS, used, "LONG-GENERAL"),
-        "short_finance": pick_unique_topic(FINANCE_SEEDS, used + [topics.get("long_finance", "")], "SHORT-FINANCE") if False else None,
-        "short_general": None,
-        "short_curious": None,
-    }
-    
-    # Re-run with proper used-list updating to avoid duplicates within the same run
+
+    # Use a copy of used list to avoid duplicates WITHIN this run
     run_used = used.copy()
-    
+
+    topics = {}
+
     topics["long_finance"] = pick_unique_topic(FINANCE_SEEDS, run_used, "LONG-FINANCE")
     run_used.append(topics["long_finance"].lower())
-    
+
     topics["long_general"] = pick_unique_topic(GENERAL_SEEDS, run_used, "LONG-GENERAL")
     run_used.append(topics["long_general"].lower())
-    
+
     topics["short_finance"] = pick_unique_topic(FINANCE_SEEDS, run_used, "SHORT-FINANCE")
     run_used.append(topics["short_finance"].lower())
-    
+
     topics["short_general"] = pick_unique_topic(GENERAL_SEEDS, run_used, "SHORT-GENERAL")
     run_used.append(topics["short_general"].lower())
-    
+
     topics["short_curious"] = pick_unique_topic(CURIOUS_SEEDS, run_used, "SHORT-CURIOUS")
     run_used.append(topics["short_curious"].lower())
-    
-    # Save the newly used topics
+
+    # Save the updated used-topics list
     save_used_topics(run_used)
-    
+
     return topics
+
+
+if __name__ == "__main__":
+    result = research_topics()
+    print("\n📌 Result:")
+    for k, v in result.items():
+        print(f"  {k}: {v}")
