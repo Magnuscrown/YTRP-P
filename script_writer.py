@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from litellm import completion
 from config import OPENROUTER_API_KEY, GROQ_API_KEY
@@ -15,14 +16,9 @@ def get_current_free_openrouter_models():
         )
         response.raise_for_status()
         models = response.json().get("data", [])
-        free_models = [
-            m["id"] for m in models
-            if m.get("pricing", {}).get("prompt") == "0"
-        ]
-        print(f"🔍 Found {len(free_models)} free models on OpenRouter")
-        return free_models
+        return [m["id"] for m in models if m.get("pricing", {}).get("prompt") == "0"]
     except Exception as e:
-        print(f"⚠️ Could not fetch OpenRouter models: {repr(e)}")
+        print(f"⚠️ Could not fetch models: {repr(e)}")
         return []
 
 
@@ -32,47 +28,28 @@ def build_prompt(topic, video_type):
     else:
         length = "45 seconds (about 120 words)"
 
-    return f"""You are a viral YouTube script writer. Write ONLY the narration for a {length} video about: {topic}.
+    return f"""You are a viral YouTube script writer for a MOTIVATIONAL FINANCE channel.
 
-ABSOLUTE RULES — you MUST follow every one:
-1. Output ONLY the words the narrator speaks. Nothing else.
-2. NO titles, NO headings, NO labels like "Voice:" or "Narrator:".
-3. NO square brackets, NO scene directions, NO visual descriptions.
-4. NO markdown (no #, no *, no -, no bold, no italics).
-5. NO timestamps, NO scene numbers, NO section headers.
-6. Every word you write will be spoken aloud. Nothing is for the eyes only.
+Write a {length} narration script about: {topic}
 
-THE HOOK (first 1-2 sentences — THIS IS THE MOST IMPORTANT PART):
-- Start with a shocking, curiosity-inducing statement or question.
-- Make the viewer feel like they MUST keep watching to find out the answer.
-- Never start with "Hello", "Welcome", "In this video", or "Have you ever".
-- Use patterns like:
-  * "Most people believe X — but the truth is the opposite."
-  * "There is a reason [strange thing] happens, and once you know it, you cannot un-know it."
-  * "If you do this one thing, [surprising consequence] — and almost nobody knows why."
-- The hook must create a GAP in the viewer's mind that only the rest of the video can close.
-
-CURIOSITY THROUGHOUT (every 20-30 seconds):
-- Open a new "loop" — say something intriguing, but don't reveal it yet.
-- Example: "But here is the part that really surprised me..." → pause → reveal.
-- Example: "And what I found next changes everything."
-- Never answer a question immediately. Always tease the answer first.
-- Use short sentences. Short paragraphs. Slow rhythm.
+ABSOLUTE RULES:
+1. Output ONLY narration text — no titles, no labels, no brackets, no markdown.
+2. Start with a shocking hook in the first 1-2 sentences. No "Hello", "Welcome", "Have you ever".
+3. Open a new curiosity loop every 20-30 seconds. Tease answers before revealing them.
+4. Every word will be spoken aloud. Nothing for the eyes only.
+5. Tone: calm, slow, confident, wise — like a mentor explaining to a young person.
+6. Simple words only. Short sentences. Slow rhythm.
+7. End with a soft insight and a subtle push to subscribe.
 
 STRUCTURE:
-- Hook (5-15 seconds): the shocking opening.
-- Build-up (30-60 seconds): explain why this matters. Add a second curiosity loop.
-- Body (rest of the video): 3-5 key points, each ending with a mini-reveal that pushes to the next.
-- Payoff (last 15 seconds): deliver the final surprising insight. End with a soft open loop into the next video idea.
-
-TONE:
-- Calm, slow, confident, curious — like a wise friend explaining a secret to a 5-year-old.
-- Simple words only. No jargon. No complexity.
-- Every sentence should feel like the next piece of a puzzle.
+- Hook: shocking truth or counterintuitive statement
+- Build-up: why this matters
+- Body: 3-5 powerful points, each with a mini-reveal
+- Payoff: surprising final insight
 
 LENGTH: exactly {length}.
 
-OUTPUT: Only the narration text. Begin with the hook. Nothing before it. Nothing after it. Start now."""
+Output ONLY the narration. Begin now."""
 
 
 def write_script(topic, video_type="long"):
@@ -89,35 +66,22 @@ def write_script(topic, video_type="long"):
             response = completion(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.85,  # Higher = more creative hooks
+                temperature=0.85,
                 max_tokens=4000,
             )
             script = response.choices[0].message.content.strip()
 
-            # Clean up any accidental formatting
+            # Clean
             script = script.replace("**", "").replace("##", "")
-            script = script.replace("Voice:", "").replace("Narrator:", "")
-            script = script.replace("Host:", "")
+            script = re.sub(r'\[.*?\]', '', script)
+            script = re.sub(r'\(.*?\)', '', script)
+            script = re.sub(r'\s+', ' ', script)
 
-            # Remove label/header-looking lines
-            cleaned_lines = []
-            for line in script.split("\n"):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if stripped.endswith(":") and len(stripped) < 40:
-                    continue
-                if stripped.startswith(("#", "*", "-", "[", "Scene")):
-                    continue
-                cleaned_lines.append(stripped)
-
-            script = " ".join(cleaned_lines)
-
-            print(f"✅ Script written by {model_name}")
-            return script
+            print(f"✅ Script by {model_name}")
+            return script.strip()
         except Exception as e:
-            print(f"⚠️ {model_name} failed: {repr(e)}")
+            print(f"⚠️ {model_name} failed: {repr(e)[:150]}")
             continue
 
-    print("❌ All AI providers failed.")
-    return f"Script generation failed for topic: {topic}"
+    print("❌ All models failed.")
+    return f"Script generation failed for: {topic}"
