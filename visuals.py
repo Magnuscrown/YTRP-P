@@ -4,48 +4,89 @@ import random
 import time
 from config import OUTPUT_DIR, IMAGE_STYLE
 
-# Rotating pool of finance / business / motivational visual templates
-FINANCE_VISUALS = [
-    "a lone businessman standing on a rooftop looking at a city skyline at dusk",
-    "close-up of gold coins stacked on a wooden desk with warm lamp light",
-    "a person walking up a long staircase toward a bright light",
-    "an open leather wallet with dollar bills and a coffee cup",
-    "a chessboard with a king piece standing under dramatic spotlight",
-    "a man in a suit looking out a rainy window at night",
-    "a young man sitting alone in a dark room reading a book by lamplight",
-    "empty meeting room with chairs and a projector screen at dawn",
-    "hands writing in a notebook next to a cup of coffee and a laptop",
-    "an old clock on a wall with sunlight casting long shadows",
-    "a mountain peak at sunrise with a single hiker silhouette",
-    "a road stretching into the distance through a desert at sunset",
-    "a wall covered in sticky notes and business plans",
-    "a lighthouse standing against a stormy dark ocean",
-    "a candle burning on a wooden table in a dark room",
-    "money bills floating in the air in slow motion",
-    "a glass jar full of coins on a kitchen table",
-    "a family photo on a desk with a calculator and bills",
-    "a gym at dawn with light coming through the windows",
-    "a man in a hoodie staring at his reflection in a shop window",
-    "an empty office at night with one desk lamp on",
-    "a stack of books with the top one glowing softly",
-    "a sunrise over a quiet suburban neighborhood",
-    "a businessman shaking hands with a shadowy figure",
-    "a young boy looking at a skyscraper from the street below",
-    "an escalator going up in a modern glass building",
-    "a plant growing out of dry cracked soil at sunrise",
-    "a coin flipping in mid-air with motion blur",
-    "a door slightly open with bright light pouring through the crack",
-    "an old man's hands holding a worn-out wallet",
-    "a car driving away on an empty highway at twilight",
-    "a silhouette of a person standing on a cliff at sunset",
-    "an hourglass with sand falling under warm golden light",
-    "a hand reaching up toward the sky through bars of light",
-    "a wooden boat on a calm sea at sunrise",
+# Cinematic style modifiers (combined randomly so each image feels unique)
+CINEMATIC_MODIFIERS = [
+    "dramatic golden hour lighting",
+    "moody blue hour atmosphere",
+    "soft morning light through a window",
+    "warm lamp light in a dark room",
+    "harsh noir shadows",
+    "rainy night neon reflections",
+    "dusty sunlight beams",
+    "cool overcast daylight",
+    "firelight glow",
+    "candlelit warm interior",
+    "sunset silhouette",
+    "foggy dawn mist",
+    "cinematic backlight with lens flare",
+    "single spotlight on subject",
+]
+
+# Composition modifiers
+COMPOSITIONS = [
+    "wide establishing shot",
+    "medium shot",
+    "close-up detail shot",
+    "low angle heroic shot",
+    "over-the-shoulder shot",
+    "top-down flat lay",
+    "silhouette against bright background",
+    "isolated subject with negative space",
+    "environmental portrait",
+    "documentary style candid",
+]
+
+# Setting modifiers — finance/business/motivation flavored
+SETTINGS = [
+    "a modern city skyline at dusk",
+    "a quiet library with old books",
+    "a minimalist home office with laptop",
+    "a rainy window overlooking traffic",
+    "an empty boardroom with leather chairs",
+    "a garage workshop with tools",
+    "a rooftop garden with potted plants",
+    "a coffee shop with warm wood counters",
+    "a dirt road through farmland at sunrise",
+    "a glass skyscraper lobby",
+    "a subway platform at night",
+    "an old brick warehouse interior",
+    "a mountain trail with morning mist",
+    "a fishing boat on a calm sea",
+    "a train station with a lone traveler",
+    "a walk-up apartment stairwell",
+    "an old man's cluttered desk",
+    "a young person's empty bedroom",
+    "a hardware store aisle",
+    "a farm at golden hour",
+    "a bookstore window display",
+    "a laundry line between buildings",
+    "a food market at dawn",
+    "a mountain cabin with snow",
+    "a pier at sunset",
+    "a rooftop overlooking a bridge",
+    "a university library staircase",
+    "a fire escape at night",
+    "a basketball court at sunset",
+    "a boxing gym interior",
 ]
 
 
+def build_prompt(topic, index):
+    """Build a unique cinematic prompt for each image."""
+    setting = random.choice(SETTINGS)
+    lighting = random.choice(CINEMATIC_MODIFIERS)
+    comp = random.choice(COMPOSITIONS)
+
+    # Topic-flavored subject
+    subject = f"symbolic visual about {topic}"
+
+    return (
+        f"{subject}, {setting}, {comp}, {lighting}, "
+        f"no text, no watermark, no logo, no caption"
+    )
+
+
 def generate_image(prompt, output_path, width, height, seed=None):
-    """Generate a cinematic image via Pollinations.ai (free)."""
     full_prompt = f"{prompt}, {IMAGE_STYLE}"
     url = (
         f"https://image.pollinations.ai/prompt/"
@@ -57,41 +98,33 @@ def generate_image(prompt, output_path, width, height, seed=None):
 
     for attempt in range(3):
         try:
-            response = requests.get(url, timeout=180)
-            response.raise_for_status()
-            if len(response.content) < 5000:
-                raise Exception("Image too small — likely failed")
+            r = requests.get(url, timeout=180)
+            r.raise_for_status()
+            if len(r.content) < 5000:
+                raise Exception("Image too small")
             with open(output_path, "wb") as f:
-                f.write(response.content)
+                f.write(r.content)
             return output_path
         except Exception as e:
-            print(f"⚠️ Image attempt {attempt+1} failed: {e}")
+            print(f"   ⚠️ attempt {attempt+1} failed: {e}")
             time.sleep(3)
 
-    # Fallback: solid dark image
     from PIL import Image
     Image.new("RGB", (width, height), (20, 20, 30)).save(output_path)
     return output_path
 
 
 def create_visuals(topic, num_images, is_short=False):
-    """Generate N cinematic images for this video."""
     if is_short:
         width, height = 1080, 1920
     else:
         width, height = 1920, 1080
 
-    # Pick N unique visual templates
-    pool = FINANCE_VISUALS.copy()
-    random.shuffle(pool)
-    selected = pool[:num_images]
-
     paths = []
-    for i, visual in enumerate(selected):
-        # Add topic flavor to the prompt
-        prompt = f"{visual}, related to {topic}"
+    for i in range(num_images):
+        prompt = build_prompt(topic, i)
         path = os.path.join(OUTPUT_DIR, f"img_{i:03d}.jpg")
-        print(f"🎨 [{i+1}/{num_images}] {visual[:60]}...")
+        print(f"🎨 [{i+1}/{num_images}] {prompt[:70]}...")
         generate_image(prompt, path, width, height, seed=random.randint(1, 999999))
         paths.append(path)
 
