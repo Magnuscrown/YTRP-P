@@ -13,7 +13,7 @@ CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 OUTPUT_DIR = "output"
 
 # Cloudflare Aura Voice Settings (MALE, natural, calm)
-CF_VOICE = "apollo"          # Male, deep, calm narrator voice
+CF_VOICE = "arcas"          # Male, deep, calm narrator voice
 CF_MODEL = "@cf/deepgram/aura-1"
 
 # Backup TTS Settings (if Cloudflare fails)
