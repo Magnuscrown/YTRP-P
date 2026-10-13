@@ -2,19 +2,19 @@ import re
 import os
 import asyncio
 import requests
-from config import OUTPUT_DIR, CF_ACCOUNT_ID, CF_API_TOKEN, CF_VOICE, CF_MODEL, BACKUP_VOICE
+from config import OUTPUT_DIR, CF_ACCOUNT_ID, CF_API_TOKEN, CF_VOICE, CF_MODEL
 
 def clean_script_for_voice(script_text):
     """Aggressively strips ALL markdown, symbols, and formatting before TTS."""
     text = script_text
-    text = re.sub(r'\[.*?\]', '', text)          # Remove [Character smiles]
-    text = re.sub(r'\(.*?\)', '', text)          # Remove (parenthetical)
-    text = re.sub(r'[#*_`>]', '', text)          # Remove markdown symbols
-    text = re.sub(r'\s*[-–—]\s*', ' ', text)     # Remove dashes
-    text = re.sub(r'\.{2,}', '.', text)          # Collapse ...
-    text = re.sub(r'!{2,}', '!', text)           # Collapse !!!
-    text = re.sub(r'\?{2,}', '?', text)          # Collapse ???
-    text = re.sub(r'\s+', ' ', text)             # Collapse whitespace
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\(.*?\)', '', text)
+    text = re.sub(r'[#*_`>]', '', text)
+    text = re.sub(r'\s*[-–—]\s*', ' ', text)
+    text = re.sub(r'\.{2,}', '.', text)
+    text = re.sub(r'!{2,}', '!', text)
+    text = re.sub(r'\?{2,}', '?', text)
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 def generate_voice_cloudflare(text, output_path):
@@ -22,7 +22,6 @@ def generate_voice_cloudflare(text, output_path):
     url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{CF_MODEL}"
     headers = {"Authorization": f"Bearer {CF_API_TOKEN}"}
     
-    # Aura has a character limit, chunk it safely
     max_chars = 1800
     chunks = [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
     
@@ -41,7 +40,6 @@ def generate_voice_cloudflare(text, output_path):
         audio_chunks.append(chunk_path)
         print(f"   ✔️ Chunk {i+1}/{len(chunks)} done")
     
-    # Merge chunks
     if len(audio_chunks) == 1:
         os.rename(audio_chunks[0], output_path)
     else:
@@ -52,13 +50,20 @@ def generate_voice_cloudflare(text, output_path):
             os.remove(c)
     return output_path
 
-def generate_voice_edge(text, output_path):
-    """Fallback: edge-tts male voice."""
-    import edge_tts
-    async def _run():
-        communicate = edge_tts.Communicate(text, BACKUP_VOICE, rate="-12%", pitch="-2Hz")
-        await communicate.save(output_path)
-    asyncio.run(_run())
+def generate_voice_pyttsx3(text, output_path):
+    """Offline TTS fallback using pyttsx3 (no internet needed)."""
+    import pyttsx3
+    engine = pyttsx3.init()
+    # Try to find a male voice
+    voices = engine.getProperty('voices')
+    for voice in voices:
+        if 'male' in voice.name.lower() or 'guy' in voice.name.lower():
+            engine.setProperty('voice', voice.id)
+            break
+    engine.setProperty('rate', 150)  # Slower, calmer
+    engine.setProperty('volume', 1.0)
+    engine.save_to_file(text, output_path)
+    engine.runAndWait()
     return output_path
 
 def generate_voiceover(script_text, output_filename):
@@ -66,18 +71,18 @@ def generate_voiceover(script_text, output_filename):
     clean_text = clean_script_for_voice(script_text)
     output_path = os.path.join(OUTPUT_DIR, output_filename)
     
-    # Try Cloudflare Aura (best quality male)
+    # Try Cloudflare Aura first (best quality)
     try:
         generate_voice_cloudflare(clean_text, output_path)
-        print(f"✅ Natural male voice saved: {output_path}")
+        print(f"✅ Natural male voice saved via Cloudflare: {output_path}")
         return output_path
     except Exception as e:
         print(f"⚠️ Cloudflare TTS failed: {repr(e)}")
     
-    # Fallback to edge-tts male voice
+    # Fallback to offline pyttsx3 (never blocked)
     try:
-        generate_voice_edge(clean_text, output_path)
-        print(f"✅ Backup male voice saved: {output_path}")
+        generate_voice_pyttsx3(clean_text, output_path)
+        print(f"✅ Offline male voice saved via pyttsx3: {output_path}")
         return output_path
     except Exception as e:
         print(f"❌ All TTS failed: {repr(e)}")
