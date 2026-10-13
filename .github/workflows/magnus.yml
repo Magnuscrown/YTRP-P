@@ -3,6 +3,9 @@ name: Magnus YouTube AI Machine
 on:
   workflow_dispatch: # Manual "Run workflow" button
 
+permissions:
+  contents: write
+  
 jobs:
   build_videos:
     runs-on: ubuntu-latest
@@ -47,3 +50,11 @@ jobs:
       with:
         name: Magnus-Output
         path: output/
+        
+    - name: Commit Used Topics
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "Magnus Bot"
+        git add used_topics.json
+        git diff --quiet && git diff --staged --quiet || git commit -m "Update used topics [skip ci]"
+        git push
