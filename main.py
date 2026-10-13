@@ -11,7 +11,7 @@ def main():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    print("🚀 Magnus AI Machine — Cinematic Finance Edition")
+    print("🚀 Magnus AI — Cinematic Finance Edition")
     topics = research_topics()
     print(f"📌 Topics: {topics}")
 
@@ -27,22 +27,15 @@ def main():
         topic = topics[key]
         print(f"\n━━━ 🎬 {key.upper()}: {topic} ━━━")
 
-        # 1. Script
         script = write_script(topic, video_type)
         with open(f"{OUTPUT_DIR}/{key}.txt", "w") as f:
             f.write(script)
 
-        # 2. Voice
-        audio = f"{key}.mp3"
-        make_voice(script, audio)
-
-        # 3. Images
+        make_voice(script, f"{key}.mp3")
         images = create_visuals(topic, num_images, is_short)
+        render_video(images, os.path.join(OUTPUT_DIR, f"{key}.mp3"), topic, is_short)
 
-        # 4. Render
-        render_video(images, os.path.join(OUTPUT_DIR, audio), topic, is_short)
-
-    print("\n✅ ALL DONE. Check output/ folder.")
+    print("\n✅ ALL DONE.")
 
 
 if __name__ == "__main__":
