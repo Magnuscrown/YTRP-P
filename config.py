@@ -9,12 +9,25 @@ NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 
-# Output Settings
+# Output
 OUTPUT_DIR = "output"
 
-# Cloudflare Aura Voice Settings (MALE, natural, calm)
-CF_VOICE = "arcas"          # Male, deep, calm narrator voice
-CF_MODEL = "@cf/deepgram/aura-1"
+# Video dimensions
+LONG_WIDTH, LONG_HEIGHT = 1920, 1080
+SHORT_WIDTH, SHORT_HEIGHT = 1080, 1920
 
-# Backup TTS Settings (if Cloudflare fails)
-BACKUP_VOICE = "en-US-GuyNeural"  # Male Microsoft voice
+# Voice (Piper)
+PIPER_MODEL = "piper_voices/en_US-ryan-high.onnx"
+VOICE_SLOW_FACTOR = 1.18   # 18% slower
+
+# Visuals
+IMAGE_STYLE = (
+    "cinematic photorealistic, dramatic lighting, "
+    "shallow depth of field, moody atmosphere, "
+    "detailed textures, film grain, professional photography, "
+    "no text, no watermark, no people faces close-up"
+)
+
+# How many images per video (fewer = longer zoom per image)
+IMAGES_LONG = 30
+IMAGES_SHORT = 5
