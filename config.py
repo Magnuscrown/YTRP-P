@@ -11,15 +11,10 @@ CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 
 # Output Settings
 OUTPUT_DIR = "output"
-VIDEO_WIDTH = 1920
-VIDEO_HEIGHT = 1080
-SHORT_WIDTH = 1080
-SHORT_HEIGHT = 1920
 
-# Character Settings (The "Magnus" Character)
-CHARACTER_PROMPT = "2D vector cartoon character, white male, short brown hair, wearing a red hoodie and blue jeans, big black expressive eyes, simple stick figure body, clean white background, consistent character design"
+# Cloudflare Aura Voice Settings (MALE, natural, calm)
+CF_VOICE = "apollo"          # Male, deep, calm narrator voice
+CF_MODEL = "@cf/deepgram/aura-1"
 
-# Voice Settings (Calm, slow, natural, confident)
-VOICE_NAME = "en-US-ChristopherNeural"
-VOICE_RATE = "-15%" # Slower
-VOICE_PITCH = "-2Hz" # Slightly deeper
+# Backup TTS Settings (if Cloudflare fails)
+BACKUP_VOICE = "en-US-GuyNeural"  # Male Microsoft voice
