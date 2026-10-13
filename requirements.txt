@@ -1,4 +1,4 @@
-moviepy==1.0.3
 litellm==1.84.0
 requests==2.31.0
-edge-tts==7.2.8
+moviepy==1.0.3
+pyttsx3==2.90
