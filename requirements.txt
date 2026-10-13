@@ -1,7 +1,2 @@
-moviepy==1.0.3
-gTTS==2.5.4
 litellm==1.84.0
-Pillow==10.2.0
 requests==2.31.0
-numpy==1.26.4
-opencv-python-headless==4.9.0.80
