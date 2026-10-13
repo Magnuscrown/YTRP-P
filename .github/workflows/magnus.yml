@@ -1,11 +1,11 @@
 name: Magnus YouTube AI Machine
 
 on:
-  workflow_dispatch: # Manual "Run workflow" button
+  workflow_dispatch: # ONLY manual — click "Run workflow" to start
 
 permissions:
   contents: write
-  
+
 jobs:
   build_videos:
     runs-on: ubuntu-latest
@@ -48,9 +48,9 @@ jobs:
     - name: Upload Output
       uses: actions/upload-artifact@v4
       with:
-        name: Magnus-Output
+        name: Magnus-Output-${{ github.run_number }}
         path: output/
-        
+
     - name: Commit Used Topics
       run: |
         git config --local user.email "action@github.com"
