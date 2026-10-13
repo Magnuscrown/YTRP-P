@@ -1,7 +1,7 @@
 import re
 import os
 import wave
-from piper import PiperVoice, SynthesisConfig
+from piper import PiperVoice
 from config import OUTPUT_DIR, PIPER_MODEL, VOICE_SLOW_FACTOR
 
 
@@ -28,15 +28,44 @@ def generate_voiceover(script_text, output_filename):
 
     voice = PiperVoice.load(PIPER_MODEL)
 
+    # Try to load SynthesisConfig (optional — older versions don't have it)
+    cfg = None
     try:
+        from piper import SynthesisConfig
         cfg = SynthesisConfig(length_scale=VOICE_SLOW_FACTOR)
-        with wave.open(wav, "wb") as f:
-            voice.synthesize(clean, f, syn_config=cfg)
-    except Exception as e:
-        print(f"⚠️ SynthesisConfig unsupported: {repr(e)[:120]}")
-        with wave.open(wav, "wb") as f:
-            voice.synthesize(clean, f)
+        print(f"   ✔️ SynthesisConfig loaded (slow_factor={VOICE_SLOW_FACTOR})")
+    except ImportError:
+        print(f"   ⚠️ SynthesisConfig not available — using default speed")
 
+    wrote_ok = False
+
+    # --- Try new API first: synthesize_wav(text, wav_file, syn_config=...) ---
+    if hasattr(voice, "synthesize_wav"):
+        try:
+            with wave.open(wav, "wb") as f:
+                if cfg is not None:
+                    voice.synthesize_wav(clean, f, syn_config=cfg)
+                else:
+                    voice.synthesize_wav(clean, f)
+            wrote_ok = True
+            print(f"   ✔️ Used synthesize_wav (new API)")
+        except Exception as e:
+            print(f"   ⚠️ synthesize_wav failed: {repr(e)[:120]}")
+
+    # --- Fall back to old API: synthesize(text, wav_file) ---
+    if not wrote_ok:
+        try:
+            with wave.open(wav, "wb") as f:
+                voice.synthesize(clean, f)
+            wrote_ok = True
+            print(f"   ✔️ Used synthesize (old API)")
+        except Exception as e:
+            print(f"   ⚠️ synthesize failed: {repr(e)[:120]}")
+
+    if not wrote_ok:
+        raise Exception("All Piper voice APIs failed")
+
+    # Convert WAV → MP3
     from moviepy.editor import AudioFileClip
     a = AudioFileClip(wav)
     a.write_audiofile(out, logger=None)
