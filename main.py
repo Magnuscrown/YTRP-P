@@ -32,7 +32,10 @@ def main():
             f.write(script)
 
         make_voice(script, f"{key}.mp3")
-        images = create_visuals(topic, num_images, is_short)
+
+        # Reduce images for shorts to speed things up
+        actual_images = num_images if not is_short else min(num_images, 6)
+        images = create_visuals(topic, actual_images, is_short)
         render_video(images, os.path.join(OUTPUT_DIR, f"{key}.mp3"), topic, is_short)
 
     print("\n✅ ALL DONE.")
