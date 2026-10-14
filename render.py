@@ -1,16 +1,22 @@
+# ============================================================
+# MONKEY PATCH — fix MoviePy 1.0.3 + Pillow 10+ incompatibility
+# ============================================================
+import PIL.Image
+if not hasattr(PIL.Image, "ANTIALIAS"):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+# ============================================================
+
 from moviepy.editor import (
     ImageClip, AudioFileClip, CompositeVideoClip,
-    concatenate_videoclips, ColorClip, vfx
+    concatenate_videoclips, ColorClip
 )
 import os
-import math
 from config import OUTPUT_DIR
 
 
 def make_ken_burns(image_path, duration, width, height, zoom_in=True, intensity=0.15):
-    """Slow zoom in/out on a single image for cinematic feel."""
+    """Slow zoom in/out on a single image."""
     clip = ImageClip(image_path).set_duration(duration)
-    # Oversize by intensity so zoom doesn't reveal edges
     clip = clip.resize(height=int(height * (1 + intensity)))
 
     def zoom_factor(t):
@@ -42,9 +48,13 @@ def render_video(image_paths, audio_path, topic, is_short=False):
 
     clips = []
     for i, img in enumerate(image_paths):
-        zoom_in = (i % 2 == 0)  # alternate in/out for variety
-        clip = make_ken_burns(img, per_image, width, height, zoom_in=zoom_in)
-        clips.append(clip)
+        zoom_in = (i % 2 == 0)
+        try:
+            clip = make_ken_burns(img, per_image, width, height, zoom_in=zoom_in)
+            clips.append(clip)
+        except Exception as e:
+            print(f"⚠️ Failed to load {img}: {repr(e)[:100]}")
+            clips.append(ColorClip((width, height), color=(20, 20, 30), duration=per_image))
 
     if not clips:
         clips = [ColorClip((width, height), color=(15, 15, 25), duration=total_duration)]
