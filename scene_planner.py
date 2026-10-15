@@ -1,4 +1,4 @@
-"""Cuts the narration into 3-5 second scenes and plans one image per scene.
+"""Cuts the narration into 5-7 second scenes and plans one image per scene.
 Scenes that repeat an earlier visual idea reuse that exact image (different zoom/transition)."""
 import json
 import math
@@ -16,8 +16,8 @@ def build_scenes(sentences, durations, rng=None):
     units = []
     for s, d in zip(sentences, durations):
         w = s.split()
-        if d > SCENE_MAX_SEC + 0.5 and len(w) > 1:
-            n = min(math.ceil(d / 4.4), len(w))
+        if d > 4.5 and len(w) > 1:
+            n = min(math.ceil(d / 3.5), len(w))
             size = len(w) / n
             for k in range(n):
                 part = w[round(k * size):round((k + 1) * size)]
@@ -26,23 +26,24 @@ def build_scenes(sentences, durations, rng=None):
         else:
             units.append((s, d))
     scenes, acc, acc_d, t = [], [], 0.0, 0.0
-    target = rng.uniform(3.2, 4.8)
+    target = rng.uniform(5.2, 6.5)
 
     def close():
         nonlocal acc, acc_d, t, target
         scenes.append({"text": " ".join(acc), "start": t, "dur": acc_d})
         t += acc_d
-        acc, acc_d, target = [], 0.0, rng.uniform(3.2, 4.8)
+        acc, acc_d, target = [], 0.0, rng.uniform(5.2, 6.5)
 
-    for text, d in units:
-        if acc and acc_d + d > SCENE_MAX_SEC + 0.2 and acc_d >= 2.5:
+    for i, (text, d) in enumerate(units):
+        if acc and acc_d + d > SCENE_MAX_SEC and acc_d >= SCENE_MIN_SEC:
             close()
         acc.append(text)
         acc_d += d
-        if acc_d >= target:
+        nxt = units[i + 1][1] if i + 1 < len(units) else 99
+        if acc_d >= SCENE_MIN_SEC and (acc_d >= target or acc_d + nxt > SCENE_MAX_SEC):
             close()
     if acc:
-        if acc_d < 1.5 and scenes:
+        if acc_d < SCENE_MIN_SEC and scenes and scenes[-1]["dur"] + acc_d <= 10.5:
             scenes[-1]["text"] += " " + " ".join(acc)
             scenes[-1]["dur"] += acc_d
         else:
@@ -96,8 +97,8 @@ def plan_visuals(scenes, topic, max_images):
             "- If a line is about the same visual idea as an EARLIER line (including earlier batches, listed below), "
             'reuse that EXACT key and set "visual" to "".\n'
             '- Otherwise invent a new key and write "visual": one concrete sentence describing a photorealistic scene '
-            "that matches the line (setting, action, objects). No text, logos or words inside the image.\n"
-            "- Any person shown is a man aged 27 to 30 in a navy suit, unless the line is about a child (show a child), "
+            "that matches the line (setting, action, objects) in a 2D animated cartoon style. No text, logos or words inside the image.\n"
+            "- Any person shown is a cartoon man aged 27 to 30 in a navy suit, unless the line is about a child (show a child), "
             "an old man (show an old man), a woman, or a group (show that instead).\n"
             "- Avoid using the same key for two lines in a row.\n"
             f"- Image budget: about {aim} NEW keys in this batch, {budget_left} left for the whole video. "
@@ -123,14 +124,14 @@ def plan_visuals(scenes, topic, max_images):
             key, vis = got.get(idx, (None, ""))
             if not key:                                   # fallback for a missing line
                 if len(keys) < max_images and random.random() < aim / len(batch) + 0.3:
-                    key, vis = f"scene {idx}", f"cinematic photorealistic scene illustrating: {sc['text']}"
+                    key, vis = f"scene {idx}", f"2D animated cartoon scene illustrating: {sc['text']}"
                 else:
                     key = prev or f"scene {idx}"
             if key not in visuals:
                 if len(keys) >= max_images and keys:
                     key = _closest(key, keys)
                 else:
-                    visuals[key] = vis or f"cinematic photorealistic scene illustrating: {sc['text']}"
+                    visuals[key] = vis or f"2D animated cartoon scene illustrating: {sc['text']}"
                     keys.append(key)
             sc["key"] = key
             prev = key
