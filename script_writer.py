@@ -1,5 +1,6 @@
 """Hook + curiosity script writer. Long scripts are written in chunks so free models can keep up."""
 import re
+import time
 
 from llm import ask
 from config import SPECS
@@ -62,7 +63,17 @@ def _chunk(topic, instruction, so_far="", lo=250, hi=800, hook=False):
         c = clean(raw)
         return lo <= wc(c) <= hi and not (hook and _bad_opener(c))
 
-    return clean(ask(prompt, system=SYSTEM, max_tokens=1800, validate=ok))
+    def ok_loose(raw):
+        c = clean(raw)
+        return max(120, lo // 2) <= wc(c) <= hi * 2 and not (hook and _bad_opener(c))
+
+    for attempt in range(3):
+        try:
+            return clean(ask(prompt, system=SYSTEM, max_tokens=1800, validate=ok if attempt == 0 else ok_loose))
+        except RuntimeError:
+            print(f"[script] chunk failed (attempt {attempt + 1}), waiting before retry")
+            time.sleep(20)
+    return None
 
 
 def _outline(topic, n=8):
@@ -83,30 +94,39 @@ def _outline(topic, n=8):
 def write_long(topic):
     spec = SPECS["long"]
     points = _outline(topic)
-    parts = [_chunk(
+    opening = _chunk(
         topic,
         "Write the OPENING of the video (about 380 words). Start with a shocking, curiosity-driven hook in the first "
         "one or two sentences. Then build up why this matters. End by teasing the first point as a question you have "
-        "not answered yet.", lo=250, hook=True)]
+        "not answered yet.", lo=250, hook=True)
+    if not opening:
+        raise RuntimeError("Could not write the opening of the long script")
+    parts = [opening]
     used_pts = 0
     while used_pts < len(points):
         total = sum(wc(p) for p in parts)
         if used_pts >= 4 and total + 400 >= spec["words_target_total"]:
             break
         pt = points[used_pts]
-        parts.append(_chunk(
+        sec = _chunk(
             topic,
             f"Write the NEXT section (about 420 words) covering this point: {pt}. Open by answering the question teased "
             "before. Give a concrete example with numbers or a short story. Near the middle, tease a question about the "
             "next part before answering it. Do NOT conclude the video.",
-            so_far=" ".join(parts)))
+            so_far=" ".join(parts))
+        if sec:
+            parts.append(sec)
         used_pts += 1
-    parts.append(_chunk(
+    final = _chunk(
         topic,
         "Write the FINAL section (about 400 words): pull the points together, deliver the big payoff promised in the "
         "hook, and end with one calm, memorable closing line. Do not say subscribe or like.",
-        so_far=" ".join(parts)))
+        so_far=" ".join(parts))
+    if final:
+        parts.append(final)
     text = " ".join(parts)
+    if wc(text) < spec["words_hard_min"]:
+        raise RuntimeError(f"Long script too short ({wc(text)} words)")
     print(f"[script] long: {wc(text)} words")
     return text
 
@@ -121,11 +141,17 @@ def write_short(topic):
         prompt = (f"Topic (a real YouTube search phrase): {topic}\n\nWrite a YouTube Short narration of about "
                   f"{(lo + hi) // 2} words. Hook in the first sentence, one curiosity question in the middle, "
                   f"a clear payoff at the end.{strict} Output ONLY the spoken narration.")
-        raw = ask(prompt, system=SYSTEM, max_tokens=900,
-                  validate=lambda t: alo <= wc(clean(t)) <= ahi and not _bad_opener(clean(t)))
+        try:
+            raw = ask(prompt, system=SYSTEM, max_tokens=900,
+                      validate=lambda t: alo <= wc(clean(t)) <= ahi and not _bad_opener(clean(t)))
+        except RuntimeError:
+            time.sleep(20)
+            continue
         last = clean(raw)
         if alo <= wc(last) <= ahi:
             break
+    if not last:
+        raise RuntimeError("Could not write the short script")
     print(f"[script] short: {wc(last)} words")
     return last
 
