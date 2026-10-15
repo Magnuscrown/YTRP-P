@@ -97,7 +97,7 @@ def mine():
     return [s for s in pool if _is_finance(s) and _clean_ok(s)]
 
 
-def pick_topics(n_long=1, n_short=3):
+def pick_topics(n_long=1, n_short=3, n_spare=6):
     used = [_norm(u) for u in load_used()]
     used_set = set(used)
     cands = [c for c in mine() if _norm(c) not in used_set and not any(_similar(c, u) for u in used[-300:])]
@@ -106,9 +106,9 @@ def pick_topics(n_long=1, n_short=3):
     for c in cands:
         if not any(_similar(c, x) for x in chosen):
             chosen.append(c)
-        if len(chosen) == n_long + n_short:
+        if len(chosen) == n_long + n_short + n_spare:
             break
     print(f"[trends] {len(cands)} fresh finance candidates")
     if len(chosen) < n_long + n_short:
         raise RuntimeError("Not enough fresh finance topics found")
-    return chosen[:n_long], chosen[n_long:]
+    return chosen[:n_long], chosen[n_long:n_long + n_short], chosen[n_long + n_short:]
