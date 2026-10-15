@@ -22,8 +22,8 @@ IMAGE_WORKERS = 3
 
 # ---- Video ----
 FPS = 24
-SCENE_MIN_SEC = 3.0            # every image stays on screen 3-5 seconds
-SCENE_MAX_SEC = 5.0
+SCENE_MIN_SEC = 5.0            # every image stays on screen at least 5 seconds
+SCENE_MAX_SEC = 7.0
 
 SPECS = {
     "long": {
