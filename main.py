@@ -65,15 +65,30 @@ def main():
     for k in ("OPENROUTER_API_KEY", "CF_ACCOUNT_ID", "CF_API_TOKEN"):
         if not getattr(C, k):
             print(f"[WARN] {k} is not set")
-    long_topics, short_topics = trend_researcher.pick_topics(1, 3)
+    long_topics, short_topics, spares = trend_researcher.pick_topics(1, 3)
     jobs = [("long", long_topics[0], "long_finance")]
     jobs += [("short", t, f"short_finance_{i}") for i, t in enumerate(short_topics, 1)]
-    results = [make_video(*j) for j in jobs]
+    results, failed = [], []
+    for kind, topic, name in jobs:
+        ok, tries = False, [topic]
+        while tries and not ok:
+            t = tries.pop(0)
+            ok = make_video(kind, t, name) or make_video(kind, t, name)   # 2 tries per topic
+            if not ok and spares:
+                tries.append(spares.pop(0))                               # then a fresh topic
+                print(f"[retry] {name} failed twice, trying a new topic")
+            if not ok and len(tries) == 0:
+                break
+        results.append(ok)
+        if not ok:
+            failed.append(name)
     shutil.rmtree(C.WORK_DIR, ignore_errors=True)
     for f in C.OUTPUT_DIR.iterdir():            # keep ONLY final videos + scripts
         if f.name not in ALLOWED:
             f.unlink() if f.is_file() else shutil.rmtree(f, ignore_errors=True)
     print(f"\nFinished: {sum(results)}/{len(results)} videos")
+    if failed:
+        print("FAILED VIDEOS: " + ", ".join(failed) + "  (scroll up for the error of each one)")
     sys.exit(0 if any(results) else 1)
 
 
