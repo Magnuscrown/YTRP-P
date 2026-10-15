@@ -21,7 +21,8 @@ LIGHTING = ["golden hour light", "soft morning light", "moody noir lighting", "b
             "warm window light", "dramatic side lighting", "neon city glow", "overcast soft light",
             "late night desk lamp", "bright clean daylight", "candlelit warm tones",
             "rim lighting", "foggy diffused light", "sunset backlight"]
-STYLE = "cinematic, photorealistic, highly detailed, no text, no letters, no watermark, no logo"
+STYLE = ("2D animated cartoon style, flat vibrant colors, clean bold outlines, modern explainer-video animation, "
+         "detailed background, no text, no letters, no watermark, no logo")
 QUOTA_HIT = threading.Event()
 
 
