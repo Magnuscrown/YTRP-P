@@ -31,10 +31,16 @@ POOR_W = ["poor","broke","debt","struggle","struggling","paycheck to paycheck"]
 RICH_W = ["rich","wealthy","wealth","millionaire"]
 
 def annotate_items(scenes):
-    """No on-screen number/label badges (no 'DAY 3', '#5'). Videos are idea-driven, not number-driven."""
+    """Shows a badge ONLY when the narration really says it (like 'Day three.' or 'Number five.')."""
+    cur = ""
     for sc in scenes:
-        sc["item_start"] = False
-        sc["item_label"] = ""
+        m = LABEL_RE.search(sc["text"])
+        sc["item_start"] = bool(m)
+        if m:
+            word = m.group(1).lower()
+            n = m.group(2).lower(); n = NUM.get(n, n)
+            cur = f"#{n}" if word == "number" else f"{word.upper()} {n}"
+        sc["item_label"] = cur
 
 def _has(text, w): return re.search(r"\b" + re.escape(w) + r"\b", text) is not None
 
