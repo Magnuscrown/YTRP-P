@@ -1,5 +1,6 @@
 """Word sticker overlay. Called from stage.py per-scene when scene['stickers'] is set."""
 import math
+import re
 from draw import Ctx
 
 PALETTE = {
@@ -19,12 +20,11 @@ def draw_sticker(c, W, H, text, x_frac, y_frac, size_frac, t, color="gold", pop=
     s = min(W, H) * size_frac * k
     x, y = W * x_frac, H * y_frac
     c.push(x, y, s)
-    # ribbon
     c.rect(-1.9, -0.7, 1.9, 0.7, bg, ink, 0.10, 0.35)
     c.text(0, 0.02, text.upper()[:14], 1.0, ink)
     c.pop()
 
-def default_stickers_for(text, emo):
+def default_stickers_for(text, emo=None):
     """Heuristic: if narration says a punchy word, return (word, color) to show."""
     t = text.lower()
     rules = [
@@ -34,7 +34,7 @@ def default_stickers_for(text, emo):
         (r"\bmillionaire|million\b","MILLION",   "gold"),
         (r"\bbillionaire|billion\b","BILLION",   "gold"),
         (r"\bzero\b",              "ZERO",       "white"),
-        (r"\b100%\b|\b100 percent\b","100%",     "purple"),
+        (r"\b100%|\b100 percent\b","100%",       "purple"),
         (r"\bnever\b",             "NEVER",      "red"),
         (r"\balways\b",            "ALWAYS",     "green"),
         (r"\bwarning|danger\b",    "WARNING",    "red"),
@@ -47,7 +47,6 @@ def default_stickers_for(text, emo):
         (r"\brich\b",              "RICH",       "gold"),
     ]
     for pat, word, col in rules:
-        import re
         if re.search(pat, t):
             return word, col
     return None
