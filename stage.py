@@ -150,10 +150,19 @@ def make_scene_frame(scene, W, H):
                 c.pop()
 
         if badge:
+            land = WW >= HH
+            if dual:
+                spots = [(0.18, 0.12), (0.82, 0.12)] if land else [(0.5, 0.19)]
+            elif land:
+                spots = [(0.82, 0.13), (0.50, 0.92), (0.80, 0.92), (0.20, 0.92)]
+            else:
+                spots = [(0.50, 0.92), (0.28, 0.92), (0.72, 0.92), (0.50, 0.19)]
+            bx, by = spots[sum(map(ord, badge)) % len(spots)]
             k = back_out(t / 0.5) if badge_pop else 1.0
-            b = L["badge"] * k
             hw = max(1.2, 0.3 * len(badge) + 0.45)
-            c.push(WW * 0.04 + b * hw, HH * 0.04 + b * 0.7, b)
+            base_s = 0.15 * HH if land else 0.20 * WW
+            s = min(base_s, 0.8 * WW / (2 * hw)) * k
+            c.push(WW * bx, HH * by, s)
             c.rect(-hw, -0.7, hw, 0.7, (250, 196, 44), (38, 42, 56), 0.08, 0.3)
             c.text(0, 0.02, badge, 0.9, (38, 42, 56))
             c.pop()
