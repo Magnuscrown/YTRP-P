@@ -1,11 +1,18 @@
-"""Stickman rig: forward-kinematics skeleton, ~20 actions, 10 emotions with faces and effects."""
+"""Stickman rig: forward-kinematics skeleton, ~20 actions, 10 emotions with faces and effects.
+Big-head cartoon style with a colored shirt, hands and oval shoes."""
 import math
 
 from draw import Ctx
 
-TORSO, NECK, HR = 0.30, 0.03, 0.10
-UA, LA, UL, LL = 0.16, 0.16, 0.21, 0.21
-LW = 0.03
+TORSO, NECK, HR = 0.26, 0.03, 0.22
+UA, LA, UL, LL = 0.15, 0.15, 0.20, 0.20
+LW = 0.017
+
+# shirt colors: blue = neutral/trust, red = POOR, green = RICH
+SHIRT_BLUE = (52, 110, 225)
+SHIRT_RED = (224, 72, 72)
+SHIRT_GREEN = (52, 168, 92)
+SHIRTS = {"poor": SHIRT_RED, "rich": SHIRT_GREEN, None: SHIRT_BLUE}
 
 
 def up(th):
@@ -264,31 +271,56 @@ def skeleton(p):
     return dict(sh=sh, neck=neck, head=head, ea=ea, ha=ha, eb=eb, hb=hb, ka=ka, fa=fa, kb=kb, fb=fb)
 
 
-def draw_stick(c, p, emo, t, col, show_face=True, extras=True):
+def draw_stick(c, p, emo, t, col, show_face=True, extras=True, shirt=SHIRT_BLUE):
     """c is pushed so (0,0) = ground contact point, 1 unit = stickman height."""
     k = skeleton(p)
     foot = max(k["fa"][1], k["fb"][1])
     hip_y = -((1 - p["lie"]) * foot + p["lie"] * 0.05) - p["jump"]
-    hx = p["dx"]
-    c.push(hx, hip_y, 1.0)
+    c.push(p["dx"], hip_y, 1.0)
+    dark = sum(col) > 450          # light stickman on a dark background gets a dark head
+    fill = (30, 33, 46) if dark else (255, 255, 255)
     L = lambda *pts: c.line(list(pts), LW, col)
+
+    def shoe(f):
+        c.ellipse(f[0] + 0.05, f[1] - 0.035, 0.075, 0.035, fill, col, LW * 0.8)
+
+    def hand(h):
+        c.circle(h[0], h[1], 0.045, fill, col, LW * 0.7)
+
+    def sleeve(sh, el):
+        mid = (sh[0] + (el[0] - sh[0]) * 0.6, sh[1] + (el[1] - sh[1]) * 0.6)
+        c.line([sh, mid], LW * 5.0, col)
+        c.line([sh, mid], LW * 3.4, shirt)
+
+    # back leg + back arm
     L((0, 0), k["kb"], k["fb"])
+    shoe(k["fb"])
     L(k["sh"], k["eb"], k["hb"])
-    L((0, 0), k["neck"])
+    sleeve(k["sh"], k["eb"])
+    hand(k["hb"])
+    # colored shirt
+    th = math.radians(p["torso"])
+    px, py = math.cos(th), math.sin(th)
+    top, w0, w1 = k["neck"], 0.085, 0.075
+    c.poly([(-px * w0, -py * w0), (px * w0, py * w0),
+            (top[0] + px * w1, top[1] + py * w1), (top[0] - px * w1, top[1] - py * w1)],
+           shirt, col, LW * 0.8)
+    # front leg + front arm
     L((0, 0), k["ka"], k["fa"])
+    shoe(k["fa"])
     L(k["sh"], k["ea"], k["ha"])
+    sleeve(k["sh"], k["ea"])
+    hand(k["ha"])
     hold = p.get("hold")
     if hold:
         x, y = k["ha"]
         if hold == "phone":
-            c.rect(x - .03, y - .07, x + .03, y + .02, (50, 55, 70), None, 0.01, 0.01)
+            c.rect(x - .05, y - .11, x + .05, y + .03, (50, 55, 70), None, 0.01, 0.015)
         elif hold == "money":
             for i in range(3):
-                c.rect(x - .05 + i * .02, y - .05 - i * .01, x + .06 + i * .02, y + .0 - i * .01, (60, 170, 95), (30, 90, 50), 0.006)
+                c.rect(x - .08 + i * .03, y - .08 - i * .015, x + .09 + i * .03, y + .0 - i * .015, (60, 170, 95), (30, 90, 50), 0.006)
     hxx, hyy = k["head"]
-    dark = sum(col) > 450          # light stickman on a dark background gets a dark head
-    fill = (30, 33, 46) if dark else (255, 255, 255)
-    c.circle(hxx, hyy, HR, fill, col, LW * 0.8)
+    c.circle(hxx, hyy, HR, fill, col, LW * 0.9)
     if show_face:
         face(c, hxx, hyy, HR, emo, t, col, extras, fill)
     c.pop()
