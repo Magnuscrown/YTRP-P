@@ -14,8 +14,8 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 
 # ---- Voice (Piper) ----
 PIPER_MODEL = os.getenv("PIPER_MODEL", str(ROOT / "models" / "en_US-hfc_male-medium.onnx"))
-PIPER_LENGTH_SCALE = 1.30
-SENTENCE_PAUSE = 0.25
+PIPER_LENGTH_SCALE = 1.30      # slow and clear. Higher = slower (1.40 sounds dragged)
+SENTENCE_PAUSE = 0.45          # longer pauses between sentences feel more human
 
 # ---- Video ----
 FPS = 20
@@ -32,8 +32,8 @@ CHANNEL_FOCUS = "psychology"   # Options: "psychology" or "general"
 SPECS = {
     "long": {
         "size": (1280, 720),
-        "words_target_total": 2400,
-        "words_hard_min": 1400,
+        "words_target_total": 2700,
+        "words_hard_min": 1200,
         "min_sec": 840,
         "hard_min_sec": 600,
         "max_sec": 1500,
