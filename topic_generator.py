@@ -1,10 +1,11 @@
-"""Creates titles from YouTube trends (US/GB/CA/AU) for the Rich vs Poor Psychology channel."""
+"""Finds what people in the USA, UK, Canada and Australia really search on YouTube about money/rich/poor,
+then turns each idea into a Rich vs Poor Psychology title. Numbers are NEVER forced.
+Every video in a run gets a different angle, hook style and ending style (see formats.py)."""
 import json, random, re, time
 import requests
 from config import USED_TOPICS_FILE, SPECS, YOUTUBE_API_KEY, CHANNEL_FOCUS
 from llm import ask
-
-D, A = "desc", "asc"
+from formats import FORMATS, HOOK_STYLES, ENDINGS
 
 COUNTRIES = [
     {"geo": "US", "name": "USA"},
@@ -13,21 +14,26 @@ COUNTRIES = [
     {"geo": "AU", "name": "Australia"},
 ]
 
-PSYCHOLOGY_TEMPLATES = [
-    ("The psychology of why {n} people stay poor and how the rich avoid it", "Number", D),
-    ("{n} subtle habits of the rich that the poor never notice", "Number", D),
-    ("How the rich use {n} simple psychological tricks to build wealth", "Number", D),
-    ("{n} mindset differences between the rich and the poor", "Number", D),
-    ("{n} things poor people do that rich people never do", "Number", D),
-    ("The psychology behind {n} money mistakes poor people make", "Number", D),
-    ("{n} ways the rich think differently about money than the poor", "Number", D),
-    ("{n} signs you have a poor mindset (and how to fix it)", "Number", D),
-    ("The rich vs poor guide to {n} everyday money decisions", "Number", D),
-    ("{n} habits the poor call normal that the rich call dangerous", "Number", D),
+SEEDS = [
+    "why poor people stay poor", "why rich people", "how rich people think", "poor mindset", "rich mindset",
+    "money psychology", "why am i always broke", "habits of rich people", "how to stop being poor",
+    "poor vs rich", "wealthy mindset", "why do i spend money", "scarcity mindset", "why rich people get richer",
+    "money habits", "paycheck to paycheck", "how to think like a millionaire",
 ]
 
-NUMW = ["zero","one","two","three","four","five","six","seven","eight","nine","ten"]
 _yt_cache = {"videos": [], "ts": 0}
+
+# ------------------------------------------------------------------ what people really search
+def _autocomplete(q, geo):
+    """YouTube search suggestions = what real people in that country type into the search box."""
+    try:
+        r = requests.get("https://suggestqueries.clients.google.com/complete/search",
+                         params={"client": "firefox", "ds": "yt", "q": q, "hl": "en", "gl": geo}, timeout=12)
+        if r.status_code != 200: return []
+        data = r.json()
+        return [s for s in data[1] if isinstance(s, str) and 3 <= len(s.split()) <= 10]
+    except Exception:
+        return []
 
 def _yt_most_popular(region):
     if not YOUTUBE_API_KEY: return []
@@ -36,70 +42,70 @@ def _yt_most_popular(region):
     try:
         r = requests.get(url, params=params, timeout=15)
         if r.status_code != 200: return []
-        return [{"title": it["snippet"]["title"], "region": region} for it in r.json().get("items", [])
-                if 2 <= len(it["snippet"]["title"].split()) <= 12]
+        return [it["snippet"]["title"] for it in r.json().get("items", []) if 2 <= len(it["snippet"]["title"].split()) <= 12]
     except Exception: return []
 
 def _yt_search_finance(region):
     if not YOUTUBE_API_KEY: return []
     url = "https://www.googleapis.com/youtube/v3/search"
     out = []
-    for q in ["how to make money", "personal finance", "rich vs poor", "money mindset", "investing for beginners"]:
+    for q in ["rich vs poor", "money mindset", "personal finance", "how to make money"]:
         params = {"part": "snippet", "q": q, "type": "video", "order": "viewCount", "regionCode": region, "maxResults": 10, "key": YOUTUBE_API_KEY}
         try:
             r = requests.get(url, params=params, timeout=15)
             if r.status_code == 200:
                 for it in r.json().get("items", []):
                     t = it["snippet"]["title"]
-                    if 2 <= len(t.split()) <= 12: out.append({"title": t, "region": region})
+                    if 2 <= len(t.split()) <= 12: out.append(t)
         except Exception: pass
     return out
 
-def fetch_youtube_trends(force=False):
+def fetch_trends(force=False):
+    """Returns a list of idea phrases from real searches in US/GB/CA/AU."""
     now = time.time()
     if not force and _yt_cache["videos"] and now - _yt_cache["ts"] < 6 * 3600:
         return _yt_cache["videos"]
-    out = []
+    ideas = []
     for c in COUNTRIES:
-        vids = _yt_most_popular(c["geo"])
-        if not vids: vids = _yt_search_finance(c["geo"])
-        out.extend(vids)
-        if len(out) >= 60: break
+        for seed in random.sample(SEEDS, 4):
+            ideas += _autocomplete(seed, c["geo"])
+        if YOUTUBE_API_KEY:
+            ideas += _yt_most_popular(c["geo"]) or _yt_search_finance(c["geo"])
     seen, uniq = set(), []
-    for v in out:
-        k = v["title"].lower()
-        if k not in seen:
-            seen.add(k); uniq.append(v)
+    for t in ideas:
+        k = t.lower().strip()
+        if k not in seen and _is_target_country(t):
+            seen.add(k); uniq.append(t)
     _yt_cache["videos"] = uniq
     _yt_cache["ts"] = now
-    print(f"[yt] {len(uniq)} trending titles from US/GB/CA/AU")
+    print(f"[trends] {len(uniq)} real search ideas from US/GB/CA/AU")
     return uniq
 
 def _is_target_country(title: str) -> bool:
     t = " " + title.lower() + " "
-    bad = ["india", "pakistan", "nigeria", "china", "japan", "korea", "brazil", "mexico", "russia", "germany", "france", "cricket", "bollywood"]
-    if any(o in t for o in bad): return False
-    return True
+    bad = ["india", "pakistan", "nigeria", "china", "japan", "korea", "brazil", "mexico", "russia", "germany", "france", "cricket", "bollywood", "hindi", "urdu", "tamil"]
+    return not any(o in t for o in bad)
 
-def _trend_to_title(trend: str, n: int):
-    if CHANNEL_FOCUS != "psychology":
-        prompt = f"Turn '{trend}' into a finance YouTube title with the number {n}."
-    else:
-        prompt = (f"A trending YouTube search is: \"{trend}\"\n"
-                  f"Turn that into a 'Rich vs Poor Psychology' YouTube video title with exactly the number {n} in it. "
-                  f"Style: '{n} [habits/mindset things] the poor do that the rich avoid' or similar. "
-                  f"Must contrast the rich and the poor. Must be about money psychology. If the trend has nothing to do with money or rich vs poor, answer exactly: SKIP. "
-                  f"Max 14 words. No quotes. Output ONLY the title.")
+def _trend_to_title(trend: str, F: dict):
+    prompt = (f"People in the USA, UK, Canada and Australia really search this on YouTube: \"{trend}\"\n"
+              f"Turn that idea into a YouTube video title for a channel about the Psychology of Rich vs Poor. "
+              f"Angle: {F['title_style']}. "
+              "The title must make a stranger curious and must be about money psychology (poor mindset vs rich mindset). "
+              "Use a number ONLY if the idea naturally has one. Otherwise use NO digits at all. "
+              "If the idea has nothing to do with money, wealth, or rich vs poor thinking, answer exactly: SKIP. "
+              "Max 14 words. No quotes. Output ONLY the title.")
     def ok(t):
         line = t.strip().splitlines()[0]
         if line.strip().upper().startswith("SKIP"): return True
-        return (str(n) in line or NUMW[n] in line.lower()) and 3 <= len(line.split()) <= 16
+        return 3 <= len(line.split()) <= 16
     try:
         out = ask(prompt, max_tokens=60, validate=ok, temperature=0.9).strip().splitlines()[0].strip('"* ')
         if out.strip().upper().startswith("SKIP"): return None
         return out
-    except Exception: return None
+    except Exception:
+        return None
 
+# ------------------------------------------------------------------ memory of what was used
 def _norm(t): return re.sub(r"[^a-z0-9 ]", "", t.lower()).strip()
 def _sim(a, b):
     wa, wb = set(_norm(a).split()), set(_norm(b).split())
@@ -109,45 +115,67 @@ def load_used():
     try: return json.loads(USED_TOPICS_FILE.read_text())
     except Exception: return []
 
-def mark_used(title):
+def mark_used(title, fmt=None):
+    """Remembers the title, and the angle (stored as 'fmt:name') so the next run avoids repeating it."""
     used = load_used(); used.append(title)
+    if fmt: used.append(f"fmt:{fmt}")
     USED_TOPICS_FILE.write_text(json.dumps(used, indent=1))
 
-def _refine(title0, n, recent):
-    prompt = (f"Rewrite this title to be fresh and curiosity-driven. Keep the number {n}. "
+def choose_formats(kinds):
+    """One DIFFERENT angle per video; angles used in recent runs are avoided."""
+    recent = [u[4:] for u in load_used()[-80:] if isinstance(u, str) and u.startswith("fmt:")][-8:]
+    chosen = []
+    for kind in kinds:
+        pool = [k for k, f in FORMATS.items() if kind in f["kinds"] and k not in chosen]
+        fresh = [k for k in pool if k not in recent] or pool
+        chosen.append(random.choice(fresh))
+    return chosen
+
+def _refine(title0, recent):
+    prompt = (f"Rewrite this title to be fresh and curiosity-driven. Do not add numbers. "
               f"Max 14 words. No quotes.\nOriginal: {title0}\nAvoid these: {recent[-8:]}\nOutput ONLY the title.")
     def ok(t):
-        line = t.strip().splitlines()[0]
-        return (str(n) in line or NUMW[n] in line.lower()) and 3 <= len(line.split()) <= 16
+        return 3 <= len(t.strip().splitlines()[0].split()) <= 16
     try: return ask(prompt, max_tokens=60, validate=ok, temperature=0.9).strip().splitlines()[0].strip('"* ')
     except Exception: return title0[0].upper() + title0[1:]
 
-def new_job(kind, avoid=()):
-    lo, hi = SPECS[kind]["n_range"]
-    used = load_used()
-    yt = fetch_youtube_trends()
-    if yt:
-        random.shuffle(yt)
-        for item in yt[:25]:
-            trend = item["title"]
-            if not _is_target_country(trend): continue
-            n = random.randint(lo, hi)
-            title = _trend_to_title(trend, n)
-            if not title or any(_sim(title, u) for u in used[-400:]): continue
-            return dict(kind=kind, title=title, n=n, label="Number", order=D, tpl="yt:" + trend)
-    for _ in range(40):
-        tpl, label, order = random.choice(PSYCHOLOGY_TEMPLATES)
+# ------------------------------------------------------------------ jobs
+def new_job(kind, avoid=(), fmt=None, hook_style=None, ending=None, taken=()):
+    if fmt not in FORMATS or kind not in FORMATS[fmt]["kinds"]:
+        fmt = choose_formats([kind])[0]
+    F = FORMATS[fmt]
+    hook_style = hook_style if hook_style in HOOK_STYLES else random.choice(list(HOOK_STYLES))
+    ending = ending if ending in ENDINGS else random.choice(list(ENDINGS))
+    lo, hi = F["beats_long"] if kind == "long" else F["beats_short"]
+    beats = random.randint(lo, hi)
+    used = load_used() + list(taken)
+    base = dict(kind=kind, fmt=fmt, beats=beats, hook_style=hook_style, ending=ending)
+    ideas = fetch_trends()
+    if ideas:
+        pool = ideas[:]
+        random.shuffle(pool)
+        for trend in pool[:25]:
+            if "search:" + trend in avoid: continue
+            title = _trend_to_title(trend, F)
+            if not title or any(_sim(title, u) for u in used[-400:] if not u.startswith("fmt:")): continue
+            return dict(base, title=title, tpl="search:" + trend)
+    tpls = F["templates"][:]
+    random.shuffle(tpls)
+    for tpl in tpls * 3:
         if tpl in avoid: continue
-        n = random.randint(lo, hi)
-        title = _refine(tpl.format(n=n), n, used)
-        if any(_sim(title, u) for u in used[-400:]): continue
-        return dict(kind=kind, title=title, n=n, label=label, order=order, tpl=tpl)
+        for cand in (_refine(tpl, used), tpl):
+            if not any(_sim(cand, u) for u in used[-400:] if not u.startswith("fmt:")):
+                return dict(base, title=cand, tpl=tpl)
     raise RuntimeError("Could not create a fresh title")
 
 def pick_jobs():
-    jobs, avoid = [], set()
-    for kind in ["long", "short", "short", "short"]:
-        j = new_job(kind, avoid)
-        avoid.add(j["tpl"]); jobs.append(j)
-        print(f"[topics] {kind}: {j['title']}")
+    kinds = ["long", "short", "short", "short"]
+    fmts = choose_formats(kinds)
+    hooks = random.sample(list(HOOK_STYLES), 4)
+    ends = random.sample(list(ENDINGS), 4)
+    jobs, avoid, titles = [], set(), []
+    for kind, fmt, hs, en in zip(kinds, fmts, hooks, ends):
+        j = new_job(kind, avoid, fmt, hs, en, taken=titles)
+        avoid.add(j["tpl"]); titles.append(j["title"]); jobs.append(j)
+        print(f"[topics] {kind} ({j['fmt']}, hook={j['hook_style']}, end={j['ending']}): {j['title']}")
     return jobs
