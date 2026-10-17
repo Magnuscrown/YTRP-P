@@ -5,6 +5,8 @@ from llm import ask
 from config import SPECS
 from formats import FORMATS, HOOK_STYLES, ENDINGS
 
+KEEP_LABELS = False
+
 SYSTEM = (
     "You are the voice of a YouTube channel about the Psychology of Rich vs Poor. "
     "Viewers are in the USA, UK, Canada and Australia. "
@@ -99,7 +101,7 @@ def _chunk(prompt, lo, hi, hook=False, so_far=""):
         c = _clean(raw)
         if not (lo <= wc(c) <= hi): return False
         if hook and (_bad_opener(c) or _robotic(c) or _first_len(c) > 16): return False
-        return not _robotic(c) and not _labelled(c)
+        return not _robotic(c) and (KEEP_LABELS or not _labelled(c))
     for attempt in range(3):
         try:
             loose = (lambda raw: max(50, lo // 2) <= wc(_clean(raw)) <= hi * 2)
@@ -110,6 +112,8 @@ def _chunk(prompt, lo, hi, hook=False, so_far=""):
 
 def _strip_labels(t):
     """Safety net: remove spoken labels like 'Number five.' that the AI sometimes adds anyway."""
+    if KEEP_LABELS:
+        return t.strip()
     return re.sub(r"(^|(?<=[.!?]\s))(number|day|part|beat|step|myth|scenario|mistake)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s*[.:]\s*", r"\1", t, flags=re.I).strip()
 
 def _pick_hook(job, intro_w):
@@ -172,7 +176,8 @@ def write_long(job, outline=None):
             txt = _chunk(
                 f"Video title: {job['title']}\n"
                 + F["section"].format(item=item, w=beat_w) + "\n"
-                "Start with a natural spoken transition from what was just said. Do NOT say a number or label at the start.\n"
+                + ("Start with a natural spoken transition from what was just said.\n" if KEEP_LABELS else
+                   "Start with a natural spoken transition from what was just said. Do NOT say a number or label at the start.\n")
                 + ("This is the last idea, so land it hard and do not tease a next one." if last else
                    "Then end with one short curiosity line that makes them need what comes next, without naming it."),
                 max(60, beat_w // 2), int(beat_w * 2.4), so_far=" ".join(parts))
@@ -234,6 +239,8 @@ def write_short(job, outline=None):
     return last
 
 def write(job, outline=None):
+    global KEEP_LABELS
+    KEEP_LABELS = bool(re.search(r"\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty)\b", job["title"], re.I))
     return write_long(job, outline) if job["kind"] == "long" else write_short(job, outline)
 
 def get_outline(job):
