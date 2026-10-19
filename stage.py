@@ -2,7 +2,7 @@
 Shirt colors: blue = neutral, red = poor, green = rich."""
 import math
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 import props as P
 import props_extra
@@ -15,41 +15,6 @@ from draw import Ctx, font
 from stickers import draw_sticker
 
 
-def _jit(tick, seed):
-    """Tiny repeatable random number in -0.5..0.5 (changes every tick). Gives the hand-drawn 'boiling line' feel."""
-    v = math.sin(tick * 12.9898 + seed * 78.233) * 43758.5453
-    return (v - math.floor(v)) - 0.5
-
-
-def _stylize_prop(fn, t, size):
-    """Draws a prop on its own layer, then adds a thick ink outline and a soft drop shadow
-    so it feels like a real cut-out object, not flat shapes."""
-    pad = int(size * 0.25) + 6
-    S = int(size) + 2 * pad
-    layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    cc = Ctx(layer)
-    cc.push(S / 2, S / 2, size)
-    fn(cc, t)
-    cc.pop()
-    alpha = layer.split()[3]
-    half = max(8, S // 2)
-    a2 = alpha.resize((half, half), Image.BILINEAR)
-    ow = max(1, int(size * 0.012 / 2))
-    out2 = a2.filter(ImageFilter.MaxFilter(2 * ow + 1))
-    sh2 = out2.filter(ImageFilter.GaussianBlur(max(2, int(size * 0.02 / 2))))
-    out = out2.resize((S, S), Image.BILINEAR).point(lambda v: 255 if v > 40 else 0)
-    sh = sh2.resize((S, S), Image.BILINEAR).point(lambda v: int(v * 0.30))
-    res = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    shadow = Image.new("RGBA", (S, S), (20, 22, 34, 0))
-    shadow.putalpha(sh)
-    res.alpha_composite(shadow, dest=(int(size * 0.03), int(size * 0.045)))
-    ink = Image.new("RGBA", (S, S), (30, 33, 46, 0))
-    ink.putalpha(out)
-    res.alpha_composite(ink)
-    res.alpha_composite(layer)
-    return res
-
-
 def back_out(x):
     c1 = 1.70158
     x = min(max(x, 0.0), 1.0) - 1
@@ -58,12 +23,13 @@ def back_out(x):
 
 def layout(W, H):
     gy = H * GROUND
-    if W >= H:
-        return dict(gy=gy, one=0.55 * H, two=0.46 * H, one_x=0.28 * W,
-                    slots=[(0.72 * W, 0.50 * H, 0.42 * H), (0.90 * W, 0.30 * H, 0.30 * H), (0.52 * W, 0.26 * H, 0.26 * H)],
+    if W >= H: # HORIZONTAL (LONG YOUTUBE VIDEOS)
+        return dict(gy=gy, one=0.65 * H, two=0.55 * H, one_x=0.25 * W,
+                    slots=[(0.75 * W, 0.55 * H, 0.45 * H), (0.90 * W, 0.35 * H, 0.30 * H), (0.55 * W, 0.30 * H, 0.26 * H)],
                     badge=0.075 * H)
-    return dict(gy=gy, one=0.52 * H, two=0.40 * H, one_x=0.32 * W,
-                slots=[(0.74 * W, 0.42 * W, 0.62 * H), (0.76 * W, 0.30 * W, 0.42 * H), (0.55 * W, 0.26 * W, 0.24 * H)],
+    # VERTICAL (TIKTOK/SHORTS) - MASSIVE CHARACTERS
+    return dict(gy=gy, one=0.75 * H, two=0.60 * H, one_x=0.30 * W,
+                slots=[(0.75 * W, 0.45 * W, 0.65 * H), (0.76 * W, 0.30 * W, 0.42 * H), (0.55 * W, 0.26 * W, 0.24 * H)],
                 badge=0.075 * W)
 
 
@@ -139,8 +105,6 @@ def make_scene_frame(scene, W, H):
     action2 = scene.get("dual_action_2", "celebrate")
     emo2 = scene.get("dual_emotion_2", "happy")
 
-    cache = {}
-
     def frame(t):
         base, col = get_bg(bg_name, WW, HH)
         img = base.copy()
@@ -153,29 +117,25 @@ def make_scene_frame(scene, W, H):
                 continue
             size *= k
             cy = L["gy"] - size / 2 + size * 0.02 if kind == "g" else fy + 0.012 * HH * math.sin(t * 1.8 + i)
-            tq = max(0.0, int(t * 7) / 7.0 - 0.12 - 0.22 * i)
-            key = (int(t * 7), round(k, 2))
-            hit = cache.get(i)
-            if hit is None or hit[0] != key:
-                hit = (key, _stylize_prop(fn, tq, size))
-                cache[i] = hit
-            layer = hit[1]
-            jx = _jit(int(t * 8), i + 3) * 0.012 * size
-            jy = _jit(int(t * 8), i + 9) * 0.012 * size
-            img.paste(layer, (int(x - layer.size[0] / 2 + jx), int(cy - layer.size[1] / 2 + jy)), layer)
+            c.push(x, cy, size)
+            fn(c, max(0.0, t - 0.12 - 0.22 * i))
+            c.pop()
 
         if dual:
-            figs = [(0.27, action, emo, dual_labels[0], (224, 72, 72), rig.SHIRT_RED),
-                    (0.73, action2, emo2, dual_labels[1], (52, 168, 92), rig.SHIRT_GREEN)]
+            # RENDER SIDE-BY-SIDE (POOR left, RICH right)
+            figs = [(0.28, action, emo, dual_labels[0], (224, 72, 72), rig.SHIRT_RED),
+                    (0.72, action2, emo2, dual_labels[1], (52, 168, 92), rig.SHIRT_GREEN)]
             size = L["two"]
         else:
-            figs = [(L["one_x"] / WW, action, emo, None, None, rig.SHIRTS.get(who, rig.SHIRT_BLUE))]
+            figs = [(L["one_x"] / WW, action, emo, None, None, rig.SHIRTS.get(who, rig.SHIRT_WHITE))]
             size = L["one"]
+
         for xf, act, em, label, lc, shirt in figs:
             p = rig.pose_at(act, t)
             if act in ("walk", "run", "sneak", "pace", "march"):
                 p["dx"] += 0.15 * math.sin(t * 0.7)
-            # soft ground shadow, tinted from the ground color
+            
+            # soft ground shadow
             try:
                 px = base.getpixel((int(WW * xf), min(HH - 1, int(L["gy"]) + 6)))
                 shade = tuple(int(v * 0.80) for v in px[:3])
@@ -184,16 +144,17 @@ def make_scene_frame(scene, W, H):
             c.push(WW * xf, L["gy"], size)
             c.ellipse(0, 0, 0.32, 0.035, shade)
             c.pop()
-            tick = int(t * 8)
-            jx = _jit(tick, 1 + int(xf * 10)) * 0.010 * size
-            jy = _jit(tick, 5 + int(xf * 10)) * 0.006 * size
-            c.push(WW * xf + jx, L["gy"] + jy, size)
-            rig.draw_stick(c, p, em, t, col, shirt=None)
+            
+            # DRAW CHARACTER
+            c.push(WW * xf, L["gy"], size)
+            rig.draw_stick(c, p, em, t, col, shirt=shirt)
             c.pop()
+            
+            # DRAW "POOR" / "RICH" ABOVE HEAD
             if label:
-                c.push(WW * xf, L["gy"] + size * 0.14, size * 0.11)
-                c.rect(-1.6, -0.6, 1.6, 0.6, lc, (20, 20, 30), 0.06, 0.3)
-                c.text(0, 0.02, label, 1.0, (250, 250, 250))
+                # Position exactly above the huge head
+                c.push(WW * xf, L["gy"] - size * 1.05, size * 0.14)
+                c.text(0, 0.02, label, 1.0, lc)
                 c.pop()
 
         if badge:
