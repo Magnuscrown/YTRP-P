@@ -90,7 +90,7 @@ EMO.update({
     "grateful":    dict(eye="arc",  brow="up",   mouth="smile", extra="sparkle"),
     "jealous":     dict(eye="dot",  brow="angry",mouth="frown", extra=None),
     "guilty":      dict(eye="dot",  brow="worry",mouth="frown", extra=None),
-    "bored":       dict(eye="dot",  brow="none", mouth="flat",  extra=None),
+    "bored":       dict(eye="bored",brow="none", mouth="flat",  extra=None), # POOR
     "determined":  dict(eye="dot",  brow="angry",mouth="grit",  extra=None),
     "relieved":    dict(eye="arc",  brow="up",   mouth="smile", extra=None),
     "anxious":     dict(eye="wide", brow="worry",mouth="wavy",  extra="sweat"),
@@ -98,7 +98,7 @@ EMO.update({
     "nostalgic":   dict(eye="arc",  brow="up1",  mouth="smile", extra=None),
     "playful":     dict(eye="arc",  brow="up",   mouth="smirk", extra=None),
     "serious":     dict(eye="dot",  brow="angry",mouth="flat",  extra=None),
-    "sarcastic":   dict(eye="dot",  brow="up1",  mouth="smirk", extra=None),
+    "sarcastic":   dict(eye="bored",brow="up1",  mouth="smirk", extra=None), # RICH
     "sleepy":      dict(eye="arc",  brow="none", mouth="flat",  extra=None),
     "sick":        dict(eye="dot",  brow="worry",mouth="wavy",  extra=None),
     "hurt":        dict(eye="arc",  brow="worry",mouth="frown", extra="tear"),
@@ -112,11 +112,15 @@ EMO.update({
     "peaceful":    dict(eye="arc",  brow="none", mouth="smile", extra=None),
     "suspicious":  dict(eye="dot",  brow="angry",mouth="flat",  extra=None),
     "sympathetic": dict(eye="dot",  brow="worry",mouth="smile", extra="tear"),
-    "tired":       dict(eye="arc",  brow="worry",mouth="flat",  extra=None),
+    "tired":       dict(eye="tired",brow="worry",mouth="flat",  extra=None), # POOR
     "eager":       dict(eye="wide", brow="up",   mouth="big",   extra=None),
     "awkward":     dict(eye="dot",  brow="worry",mouth="wavy",  extra="sweat"),
     "delighted":   dict(eye="arc",  brow="up",   mouth="big",   extra="sparkle"),
     "awestruck":   dict(eye="wide", brow="up",   mouth="o",     extra="sparkle"),
     "content":     dict(eye="arc",  brow="none", mouth="smile", extra=None),
-    "mischievous": dict(eye="dot",  brow="up1",  mouth="smirk", extra=None),
+    "mischievous": dict(eye="bored",brow="up1",  mouth="smirk", extra=None), # RICH
+    # NEW ONES SPECIFICALLY FOR YOUR VIDEO
+    "exhausted":   dict(eye="tired",brow="worry",mouth="frown", extra="sweat"), # VERY TIRED POOR
+    "confident":   dict(eye="bored",brow="up1",  mouth="smirk", extra="sparkle"), # VERY CONFIDENT RICH
+    "smug":        dict(eye="bored",brow="up1",  mouth="smirk", extra=None),      # RICH
 })
