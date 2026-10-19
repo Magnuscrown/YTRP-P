@@ -1,5 +1,6 @@
 """Rich vs Poor Psychology script writer.
-No forced numbers or labels. Each video has its own angle, hook style and ending style (see formats.py)."""
+No forced numbers or labels. Each video has its own angle, hook style and ending style (see formats.py).
+The AI writes every single word dynamically from scratch. No templates."""
 import random, re, time
 from llm import ask
 from config import SPECS
@@ -11,11 +12,16 @@ SYSTEM = (
     "You are the voice of a YouTube channel about the Psychology of Rich vs Poor. "
     "Viewers are in the USA, UK, Canada and Australia. "
     "You talk like a real person speaking to ONE friend across a table, not like a presenter or an AI. "
-    "Use ONLY very simple everyday words, the kind a five year old child would understand. No big words, ever. If an idea is hard, explain it with small words and a picture in the mind. "
-    "Use contractions (you're, don't, it's) and short sentences. "
-    "Avoid hard words like: psychological, mentality, financial, substantial, consequently, utilize, accumulate, perspective, subconscious, fundamental, essentially, behavior. Say: mind, thinking, money, big, so, use, save up, view, hidden, basic, habit. "
-    "Sound alive: it is fine to use fragments. Like this. Use 'you' a lot. Be specific and concrete: real moments, small scenes, real numbers written the way people say them out loud, like four dollars and ninety nine cents or ten dollars, never with a dollar sign. Always say the number first and then the word dollars. "
-    "Show what a poor mindset does and what a rich mindset does. Make the contrast emotional and a little uncomfortable. "
+    "Use simple words, contractions (you're, don't, it's), and short punchy sentences mixed with the occasional longer one. "
+    "Sound alive: it is fine to use fragments. Like this. Use 'you' a lot. Be specific and concrete: real moments, small scenes, real numbers like $4.99 or a 2am phone scroll. "
+    
+    # TONE GUIDELINES (Not Templates)
+    "When the script talks about the POOR mindset, describe them as exhausted, tired, burnt out, and slightly sad. Show them trapped in a cycle. "
+    "When the script talks about the RICH mindset, describe them as confident, full of positive energy, relaxed, and in control. "
+    "Show the exact moment the poor mindset chooses exhaustion, and the rich mindset chooses energy. "
+    "Explain complex money ideas so simply that a smart 10-year-old gets it immediately. Use everyday analogies (like a leaky bucket, a garden, or a shopping cart). Never sound like a textbook. "
+    
+    "Make the contrast emotional and a little uncomfortable. "
     "Never invent studies, statistics, or expert names. Never give personal financial advice or tell people what to buy. "
     "Never label or number parts out loud (no 'number one', 'day three', 'part two', 'first, second, third' lists) unless the idea truly needs it. "
     "Move between ideas with natural spoken transitions. "
@@ -23,6 +29,7 @@ SYSTEM = (
     "Output ONLY the words the narrator says. No labels, no markdown, no brackets. "
     "Never start with Hello, Welcome, In this video, or Have you ever."
 )
+
 FORBIDDEN = ("hello", "welcome", "hi ", "hey ", "hi,", "hey,", "today", "in this", "in today", "have you ever", "did you know",
              "ever wondered", "what if i told you", "okay so", "alright", "all right", "good morning", "good evening", "greetings", "listen up")
 ROBOTIC = (
@@ -102,15 +109,7 @@ def _bad_opener(t): return t.lower().lstrip().startswith(FORBIDDEN)
 def _robotic(t):
     low = t.lower()
     return any(p in low for p in ROBOTIC)
-def _too_hard(t):
-    """True if the text uses too many long words. We want basic English."""
-    ws = re.findall(r"[A-Za-z']+", t)
-    if len(ws) < 10: return False
-    long = sum(1 for x in ws if len(x) >= 10)
-    avg = sum(len(x) for x in ws) / len(ws)
-    return long / len(ws) > 0.035 or avg > 4.9
 def _labelled(t):
-    """True if the narration reads out 'number one', 'day three' etc. as a label at the start of a sentence."""
     return re.search(r"(^|[.!?]\s+)(number|day|part|beat|step|myth|scenario|mistake)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\b", t, re.I) is not None
 def _first_len(t):
     first = re.split(r"(?<=[.!?])\s+", t.strip())[0]
@@ -136,7 +135,7 @@ def _chunk(prompt, lo, hi, hook=False, so_far=""):
         c = _clean(raw)
         if not (lo <= wc(c) <= hi): return False
         if hook and (_bad_opener(c) or _robotic(c) or _first_len(c) > 16): return False
-        return not _robotic(c) and (KEEP_LABELS or not _labelled(c)) and not _too_hard(c)
+        return not _robotic(c) and (KEEP_LABELS or not _labelled(c))
     for attempt in range(3):
         try:
             loose = (lambda raw: max(50, lo // 2) <= wc(_clean(raw)) <= hi * 2)
@@ -146,13 +145,11 @@ def _chunk(prompt, lo, hi, hook=False, so_far=""):
     return None
 
 def _strip_labels(t):
-    """Safety net: remove spoken labels like 'Number five.' that the AI sometimes adds anyway."""
     if KEEP_LABELS:
         return t.strip()
     return re.sub(r"(^|(?<=[.!?]\s))(number|day|part|beat|step|myth|scenario|mistake)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s*[.:]\s*", r"\1", t, flags=re.I).strip()
 
 def _pick_hook(job, intro_w, items=None):
-    """Write 4 different hook openings in the chosen hook style, let the AI judge pick the most gripping one."""
     F = _fmt(job)
     ideas_line = ("The video will cover these ideas (do not list them, just let the hook fit them): " + " | ".join(items) + "\n") if items else ""
     base = (f"Video title: {job['title']}\n{ideas_line}"
@@ -267,7 +264,7 @@ def write_short(job, outline=None):
                   "Output ONLY the spoken narration.")
         try:
             raw = ask(prompt, system=SYSTEM, max_tokens=900, temperature=0.9,
-                      validate=lambda t: alo <= wc(_clean(t)) <= ahi and not _bad_opener(_clean(t)) and not _robotic(_clean(t)) and not _too_hard(_clean(t)))
+                      validate=lambda t: alo <= wc(_clean(t)) <= ahi and not _bad_opener(_clean(t)) and not _robotic(_clean(t)))
         except RuntimeError: time.sleep(20); continue
         last = _strip_labels(_clean(raw))
         if alo <= wc(last) <= ahi: break
